@@ -302,3 +302,5 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: "MVP completed for Accademia de 'I Musici' app. Backend has all CRUD APIs, frontend has complete admin dashboard with Italian UI. Please test the backend API endpoints."
+  - agent: "testing"
+    message: "Backend API testing completed successfully. All 29 tests passed (100% success rate). Tested all CRUD operations for courses, lessons, payments, and notifications. Authentication working correctly with admin token. All endpoints properly secured with role-based authorization. Database operations functioning correctly. No critical issues found."
