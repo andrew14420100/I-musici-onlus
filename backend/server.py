@@ -256,9 +256,15 @@ async def exchange_session(request: Request, response: Response):
     """Exchange session_id for session_token"""
     body = await request.json()
     session_id = body.get("session_id")
+    requested_role = body.get("role", "studente")  # Get requested role from body
     
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id richiesto")
+    
+    # Validate role
+    valid_roles = ["admin", "studente", "insegnante"]
+    if requested_role not in valid_roles:
+        requested_role = "studente"
     
     # Exchange session_id with Emergent Auth
     async with httpx.AsyncClient() as client:
@@ -280,15 +286,20 @@ async def exchange_session(request: Request, response: Response):
     
     if existing_user:
         user_id = existing_user["user_id"]
+        # Update role if user wants to change it
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"role": requested_role}}
+        )
     else:
-        # Create new user
+        # Create new user with requested role
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         new_user = {
             "user_id": user_id,
             "email": user_data["email"],
             "name": user_data["name"],
             "picture": user_data.get("picture"),
-            "role": UserRole.STUDENT.value,  # Default role
+            "role": requested_role,  # Use requested role
             "status": UserStatus.ACTIVE.value,
             "phone": None,
             "created_at": datetime.now(timezone.utc)
