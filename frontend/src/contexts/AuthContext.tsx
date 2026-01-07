@@ -12,11 +12,11 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  selectedRole: string | null;
-  selectedInstrument: string | null;
-  setSelectedRole: (role: string) => void;
-  setSelectedInstrument: (instrument: string) => void;
-  login: (role?: string, instrument?: string) => Promise<void>;
+  pendingAdminEmail: string | null;
+  setPendingAdminEmail: (email: string | null) => void;
+  loginWithCredentials: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginAdminPin: (email: string, pin: string) => Promise<{ success: boolean; needsGoogle?: boolean; error?: string }>;
+  loginAdminGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -38,44 +38,7 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [selectedInstrument, setSelectedInstrument] = useState<string | null>(null);
-
-  const processSessionId = async (sessionId: string, role?: string, instrument?: string) => {
-    try {
-      console.log('Processing session ID with role:', role, 'instrument:', instrument);
-      
-      // Get role and instrument from storage if not provided
-      let roleToUse = role;
-      let instrumentToUse = instrument;
-      
-      if (!roleToUse) {
-        roleToUse = await AsyncStorage.getItem('pending_role') || 'studente';
-      }
-      if (!instrumentToUse) {
-        instrumentToUse = await AsyncStorage.getItem('pending_instrument') || undefined;
-      }
-      
-      const response = await authApi.exchangeSession(sessionId, roleToUse, instrumentToUse || undefined);
-      
-      if (response.session_token) {
-        await AsyncStorage.setItem('session_token', response.session_token);
-        await AsyncStorage.removeItem('pending_role');
-        await AsyncStorage.removeItem('pending_instrument');
-        setUser(response.user);
-        
-        // Seed database with sample data
-        try {
-          await seedApi.seed();
-          console.log('Database seeded');
-        } catch (e) {
-          console.log('Seed skipped or already done');
-        }
-      }
-    } catch (error) {
-      console.error('Error processing session:', error);
-    }
-  };
+  const [pendingAdminEmail, setPendingAdminEmail] = useState<string | null>(null);
 
   const checkExistingSession = async () => {
     try {
@@ -90,16 +53,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // Handle Google callback for admin
+  const processGoogleCallback = async (sessionId: string) => {
+    const email = await AsyncStorage.getItem('pending_admin_email');
+    if (!email) {
+      console.error('No pending admin email');
+      return;
+    }
+
+    try {
+      const response = await authApi.adminGoogleVerify(email, sessionId);
+      if (response.token) {
+        await AsyncStorage.setItem('session_token', response.token);
+        await AsyncStorage.removeItem('pending_admin_email');
+        setUser(response.user);
+        setPendingAdminEmail(null);
+      }
+    } catch (error) {
+      console.error('Google verification failed:', error);
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
       
-      // Check for session_id in URL (web)
+      // First seed the database
+      try {
+        await seedApi.seed();
+      } catch (e) {
+        // Ignore
+      }
+
+      // Check for session_id in URL (web) - for admin Google callback
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const hash = window.location.hash;
         const sessionIdMatch = hash.match(/session_id=([^&]+)/);
         if (sessionIdMatch) {
-          await processSessionId(sessionIdMatch[1]);
+          await processGoogleCallback(sessionIdMatch[1]);
           window.history.replaceState({}, document.title, window.location.pathname);
         } else {
           await checkExistingSession();
@@ -110,7 +101,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (initialUrl) {
           const sessionIdMatch = initialUrl.match(/session_id=([^&]+)/);
           if (sessionIdMatch) {
-            await processSessionId(sessionIdMatch[1]);
+            await processGoogleCallback(sessionIdMatch[1]);
           } else {
             await checkExistingSession();
           }
@@ -125,16 +116,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     init();
   }, []);
 
-  const login = async (role?: string, instrument?: string) => {
-    // Store the selected role and instrument for after auth redirect
-    const roleToUse = role || selectedRole || 'studente';
-    const instrumentToUse = instrument || selectedInstrument;
-    
-    await AsyncStorage.setItem('pending_role', roleToUse);
-    if (instrumentToUse) {
-      await AsyncStorage.setItem('pending_instrument', instrumentToUse);
+  // Login for Students and Teachers (email + password)
+  const loginWithCredentials = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await authApi.login(email, password);
+      if (response.token) {
+        await AsyncStorage.setItem('session_token', response.token);
+        setUser(response.user);
+        return { success: true };
+      }
+      return { success: false, error: 'Login fallito' };
+    } catch (error: any) {
+      const message = error.response?.data?.detail || 'Errore di login';
+      return { success: false, error: message };
     }
-    
+  };
+
+  // Admin login Step 1: PIN verification
+  const loginAdminPin = async (email: string, pin: string): Promise<{ success: boolean; needsGoogle?: boolean; error?: string }> => {
+    try {
+      const response = await authApi.adminPinVerify(email, pin);
+      if (response.temp_token) {
+        // PIN verified, need Google
+        await AsyncStorage.setItem('pending_admin_email', email);
+        setPendingAdminEmail(email);
+        return { success: true, needsGoogle: true };
+      }
+      return { success: false, error: 'PIN non valido' };
+    } catch (error: any) {
+      const message = error.response?.data?.detail || 'PIN non valido';
+      return { success: false, error: message };
+    }
+  };
+
+  // Admin login Step 2: Google OAuth
+  const loginAdminGoogle = async () => {
     const redirectUrl = Platform.OS === 'web'
       ? `${BACKEND_URL}/`
       : Linking.createURL('/');
@@ -150,7 +166,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const sessionIdMatch = result.url.match(/session_id=([^&]+)/);
         if (sessionIdMatch) {
           setIsLoading(true);
-          await processSessionId(sessionIdMatch[1], roleToUse, instrumentToUse || undefined);
+          await processGoogleCallback(sessionIdMatch[1]);
           setIsLoading(false);
         }
       }
@@ -164,11 +180,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('Logout error:', error);
     }
     await AsyncStorage.removeItem('session_token');
-    await AsyncStorage.removeItem('pending_role');
-    await AsyncStorage.removeItem('pending_instrument');
+    await AsyncStorage.removeItem('pending_admin_email');
     setUser(null);
-    setSelectedRole(null);
-    setSelectedInstrument(null);
+    setPendingAdminEmail(null);
   };
 
   const refreshUser = async () => {
@@ -186,11 +200,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         user,
         isLoading,
         isAuthenticated: !!user,
-        selectedRole,
-        selectedInstrument,
-        setSelectedRole,
-        setSelectedInstrument,
-        login,
+        pendingAdminEmail,
+        setPendingAdminEmail,
+        loginWithCredentials,
+        loginAdminPin,
+        loginAdminGoogle,
         logout,
         refreshUser,
       }}
