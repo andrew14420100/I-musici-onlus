@@ -5,17 +5,13 @@ import {
   StyleSheet, 
   ScrollView, 
   RefreshControl,
-  ActivityIndicator,
-  TouchableOpacity
+  ActivityIndicator
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { statsApi, seedApi } from '../../src/services/api';
-import { AdminStats, UserRole, Lesson } from '../../src/types';
+import { AdminStats } from '../../src/types';
 import { StatCard } from '../../src/components/StatCard';
-import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
 
 export default function DashboardScreen() {
   const { user, isLoading: authLoading, isInitialized } = useAuth();
