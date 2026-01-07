@@ -14,23 +14,24 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { usersApi } from '../../src/services/api';
-import { User, UserRole, UserStatus } from '../../src/types';
-import { UserCard } from '../../src/components/UserCard';
+import { User } from '../../src/types';
 
 export default function UsersScreen() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isInitialized } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'studente' | 'insegnante'>('studente');
+  const [activeTab, setActiveTab] = useState<'allievo' | 'insegnante'>('allievo');
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
-    name: '',
+    nome: '',
+    cognome: '',
     email: '',
-    phone: '',
-    role: 'studente' as string,
+    password: '',
+    ruolo: 'allievo' as string,
+    note_admin: '',
   });
 
   const fetchUsers = async () => {
@@ -45,8 +46,12 @@ export default function UsersScreen() {
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (currentUser?.ruolo === 'amministratore') {
+      fetchUsers();
+    } else {
+      setLoading(false);
+    }
+  }, [currentUser]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -55,20 +60,23 @@ export default function UsersScreen() {
   }, []);
 
   const filteredUsers = users.filter(u => {
-    const matchesTab = u.role === activeTab;
+    const matchesTab = u.ruolo === activeTab;
+    const fullName = `${u.nome} ${u.cognome}`.toLowerCase();
     const matchesSearch = searchQuery === '' || 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      fullName.includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesTab && matchesSearch;
   });
 
-  const openCreateModal = (role: 'studente' | 'insegnante') => {
+  const openCreateModal = (ruolo: 'allievo' | 'insegnante') => {
     setEditingUser(null);
     setFormData({
-      name: '',
+      nome: '',
+      cognome: '',
       email: '',
-      phone: '',
-      role: role,
+      password: '',
+      ruolo: ruolo,
+      note_admin: '',
     });
     setModalVisible(true);
   };
@@ -76,28 +84,60 @@ export default function UsersScreen() {
   const openEditModal = (user: User) => {
     setEditingUser(user);
     setFormData({
-      name: user.name,
+      nome: user.nome,
+      cognome: user.cognome,
       email: user.email,
-      phone: user.phone || '',
-      role: user.role,
+      password: '', // Password non mostrata in modifica
+      ruolo: user.ruolo,
+      note_admin: user.note_admin || '',
     });
     setModalVisible(true);
   };
 
   const handleSave = async () => {
+    // Validazione
+    if (!formData.nome.trim() || !formData.cognome.trim()) {
+      Alert.alert('Errore', 'Nome e cognome sono obbligatori');
+      return;
+    }
+    if (!editingUser && !formData.email.trim()) {
+      Alert.alert('Errore', 'Email è obbligatoria');
+      return;
+    }
+    if (!editingUser && !formData.password.trim()) {
+      Alert.alert('Errore', 'Password è obbligatoria per i nuovi utenti');
+      return;
+    }
+    if (!editingUser && formData.password.length < 6) {
+      Alert.alert('Errore', 'La password deve essere di almeno 6 caratteri');
+      return;
+    }
+
     try {
       if (editingUser) {
-        await usersApi.update(editingUser.user_id, {
-          name: formData.name,
-          phone: formData.phone || undefined,
-        });
+        // Modifica utente esistente
+        const updateData: any = {
+          nome: formData.nome,
+          cognome: formData.cognome,
+          note_admin: formData.note_admin || undefined,
+        };
+        // Aggiungi password solo se inserita
+        if (formData.password.trim()) {
+          updateData.password = formData.password;
+        }
+        await usersApi.update(editingUser.id, updateData);
+        Alert.alert('Successo', 'Utente modificato con successo');
       } else {
+        // Crea nuovo utente
         await usersApi.create({
-          name: formData.name,
+          ruolo: formData.ruolo,
+          nome: formData.nome,
+          cognome: formData.cognome,
           email: formData.email,
-          phone: formData.phone || undefined,
-          role: formData.role,
+          password: formData.password,
+          note_admin: formData.note_admin || undefined,
         });
+        Alert.alert('Successo', `${formData.ruolo === 'allievo' ? 'Allievo' : 'Insegnante'} creato con successo`);
       }
       setModalVisible(false);
       fetchUsers();
@@ -108,15 +148,49 @@ export default function UsersScreen() {
 
   const handleToggleStatus = async (user: User) => {
     try {
-      const newStatus = user.status === UserStatus.ACTIVE ? UserStatus.INACTIVE : UserStatus.ACTIVE;
-      await usersApi.update(user.user_id, { status: newStatus });
+      const newStatus = !user.attivo;
+      await usersApi.update(user.id, { attivo: newStatus });
+      Alert.alert('Successo', `Utente ${newStatus ? 'attivato' : 'disattivato'}`);
       fetchUsers();
     } catch (error: any) {
       Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
     }
   };
 
-  if (currentUser?.role !== UserRole.ADMIN) {
+  const handleDelete = async (user: User) => {
+    Alert.alert(
+      'Conferma eliminazione',
+      `Sei sicuro di voler eliminare ${user.nome} ${user.cognome}?`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { 
+          text: 'Elimina', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await usersApi.delete(user.id);
+              Alert.alert('Successo', 'Utente eliminato');
+              fetchUsers();
+            } catch (error: any) {
+              Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  // Loading state
+  if (!isInitialized || loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4A90D9" />
+      </View>
+    );
+  }
+
+  // Access control
+  if (currentUser?.ruolo !== 'amministratore') {
     return (
       <View style={styles.noAccessContainer}>
         <Ionicons name="lock-closed" size={64} color="#ccc" />
@@ -125,24 +199,21 @@ export default function UsersScreen() {
     );
   }
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4A90D9" />
-      </View>
-    );
-  }
-
-  const studentsCount = users.filter(u => u.role === 'studente').length;
-  const teachersCount = users.filter(u => u.role === 'insegnante').length;
+  const studentsCount = users.filter(u => u.ruolo === 'allievo').length;
+  const teachersCount = users.filter(u => u.ruolo === 'insegnante').length;
 
   return (
     <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Gestione Utenti</Text>
+      </View>
+
       {/* Action Buttons */}
       <View style={styles.actionsBar}>
         <TouchableOpacity 
           style={styles.actionButton} 
-          onPress={() => openCreateModal('studente')}
+          onPress={() => openCreateModal('allievo')}
         >
           <Ionicons name="person-add" size={18} color="#fff" />
           <Text style={styles.actionButtonText}>Nuovo Allievo</Text>
@@ -159,10 +230,10 @@ export default function UsersScreen() {
       {/* Tabs */}
       <View style={styles.tabsContainer}>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'studente' && styles.activeTab]}
-          onPress={() => setActiveTab('studente')}
+          style={[styles.tab, activeTab === 'allievo' && styles.activeTab]}
+          onPress={() => setActiveTab('allievo')}
         >
-          <Text style={[styles.tabText, activeTab === 'studente' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'allievo' && styles.activeTabText]}>
             Allievi ({studentsCount})
           </Text>
         </TouchableOpacity>
@@ -203,23 +274,57 @@ export default function UsersScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="people-outline" size={48} color="#ccc" />
             <Text style={styles.emptyText}>
-              {searchQuery ? 'Nessun risultato' : `Nessun ${activeTab === 'studente' ? 'allievo' : 'insegnante'}`}
+              {searchQuery ? 'Nessun risultato' : `Nessun ${activeTab === 'allievo' ? 'allievo' : 'insegnante'}`}
             </Text>
           </View>
         ) : (
           filteredUsers.map(user => (
-            <UserCard
-              key={user.user_id}
-              user={user}
-              onEdit={() => openEditModal(user)}
-              onToggleStatus={() => handleToggleStatus(user)}
-            />
+            <View key={user.id} style={styles.userCard}>
+              <View style={styles.userAvatar}>
+                <Text style={styles.userAvatarText}>
+                  {user.nome.charAt(0)}{user.cognome.charAt(0)}
+                </Text>
+              </View>
+              <View style={styles.userInfo}>
+                <Text style={styles.userName}>{user.nome} {user.cognome}</Text>
+                <Text style={styles.userEmail}>{user.email}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: user.attivo ? '#D1FAE5' : '#FEE2E2' }]}>
+                  <Text style={[styles.statusText, { color: user.attivo ? '#065F46' : '#DC2626' }]}>
+                    {user.attivo ? 'Attivo' : 'Disattivato'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.userActions}>
+                <TouchableOpacity 
+                  style={styles.userActionBtn}
+                  onPress={() => openEditModal(user)}
+                >
+                  <Ionicons name="pencil" size={18} color="#4A90D9" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.userActionBtn}
+                  onPress={() => handleToggleStatus(user)}
+                >
+                  <Ionicons 
+                    name={user.attivo ? 'pause-circle' : 'play-circle'} 
+                    size={18} 
+                    color={user.attivo ? '#F59E0B' : '#10B981'} 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.userActionBtn}
+                  onPress={() => handleDelete(user)}
+                >
+                  <Ionicons name="trash" size={18} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            </View>
           ))
         )}
         <View style={{ height: 20 }} />
       </ScrollView>
 
-      {/* Modal */}
+      {/* Modal Create/Edit */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -230,56 +335,98 @@ export default function UsersScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {editingUser ? 'Modifica Utente' : `Nuovo ${formData.role === 'studente' ? 'Allievo' : 'Insegnante'}`}
+                {editingUser ? 'Modifica Utente' : `Nuovo ${formData.ruolo === 'allievo' ? 'Allievo' : 'Insegnante'}`}
               </Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Nome *</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.name}
-                onChangeText={(text) => setFormData({ ...formData, name: text })}
-                placeholder="Nome completo"
-              />
-            </View>
-
-            {!editingUser && (
+            <ScrollView style={styles.formScroll}>
               <View style={styles.formGroup}>
-                <Text style={styles.label}>Email *</Text>
+                <Text style={styles.label}>Nome *</Text>
                 <TextInput
                   style={styles.input}
-                  value={formData.email}
-                  onChangeText={(text) => setFormData({ ...formData, email: text })}
-                  placeholder="email@esempio.it"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
+                  value={formData.nome}
+                  onChangeText={(text) => setFormData({ ...formData, nome: text })}
+                  placeholder="Mario"
                 />
               </View>
-            )}
 
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Telefono</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.phone}
-                onChangeText={(text) => setFormData({ ...formData, phone: text })}
-                placeholder="+39 xxx xxx xxxx"
-                keyboardType="phone-pad"
-              />
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Cognome *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.cognome}
+                  onChangeText={(text) => setFormData({ ...formData, cognome: text })}
+                  placeholder="Rossi"
+                />
+              </View>
+
+              {!editingUser && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Email *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.email}
+                    onChangeText={(text) => setFormData({ ...formData, email: text })}
+                    placeholder="mario.rossi@email.it"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+              )}
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>
+                  Password {editingUser ? '(lascia vuoto per non modificare)' : '*'}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.password}
+                  onChangeText={(text) => setFormData({ ...formData, password: text })}
+                  placeholder={editingUser ? '••••••••' : 'Minimo 6 caratteri'}
+                  secureTextEntry
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Note amministratore</Text>
+                <TextInput
+                  style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+                  value={formData.note_admin}
+                  onChangeText={(text) => setFormData({ ...formData, note_admin: text })}
+                  placeholder="Note interne (opzionale)"
+                  multiline
+                />
+              </View>
+
+              {editingUser && (
+                <View style={styles.infoBox}>
+                  <Ionicons name="information-circle" size={18} color="#4A90D9" />
+                  <Text style={styles.infoBoxText}>
+                    Email: {editingUser.email}
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.saveButton}
+                onPress={handleSave}
+              >
+                <Text style={styles.saveButtonText}>
+                  {editingUser ? 'Salva Modifiche' : 'Crea Utente'}
+                </Text>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity 
-              style={styles.saveButton} 
-              onPress={handleSave}
-            >
-              <Text style={styles.saveButtonText}>
-                {editingUser ? 'Salva Modifiche' : 'Crea Utente'}
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -296,25 +443,35 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F8FAFC',
   },
   noAccessContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F8FAFC',
     padding: 20,
   },
   noAccessText: {
     fontSize: 16,
-    color: '#666',
+    color: '#999',
     marginTop: 16,
     textAlign: 'center',
+  },
+  header: {
+    backgroundColor: '#4A90D9',
+    paddingTop: 50,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   actionsBar: {
     flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
     gap: 10,
   },
   actionButton: {
@@ -323,33 +480,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#4A90D9',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     gap: 6,
   },
   actionButtonText: {
     color: '#fff',
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 14,
   },
   tabsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
+    marginHorizontal: 12,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 4,
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#4A90D9',
+    backgroundColor: '#fff',
   },
   tabText: {
     fontSize: 14,
     color: '#666',
+    fontWeight: '500',
   },
   activeTabText: {
     color: '#4A90D9',
@@ -360,16 +519,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     margin: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#E5E7EB',
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    fontSize: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    fontSize: 15,
   },
   listContainer: {
     flex: 1,
@@ -377,12 +536,67 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#999',
     marginTop: 12,
+  },
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  userAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#4A90D9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userAvatarText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  userInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  userEmail: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  userActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  userActionBtn: {
+    padding: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -393,19 +607,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
+  },
+  formScroll: {
+    padding: 16,
+    maxHeight: 400,
   },
   formGroup: {
     marginBottom: 16,
@@ -414,26 +633,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   input: {
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 15,
   },
-  saveButton: {
-    backgroundColor: '#4A90D9',
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBF5FF',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  infoBoxText: {
+    fontSize: 13,
+    color: '#4A90D9',
+    marginLeft: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  cancelButton: {
+    flex: 1,
     paddingVertical: 14,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
-    marginTop: 10,
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
+  saveButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#4A90D9',
+    alignItems: 'center',
   },
   saveButtonText: {
+    fontSize: 15,
     color: '#fff',
-    fontSize: 16,
     fontWeight: '600',
   },
 });
