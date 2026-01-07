@@ -22,8 +22,11 @@ api.interceptors.request.use(async (config) => {
 
 // Auth
 export const authApi = {
-  exchangeSession: async (sessionId: string) => {
-    const response = await api.post('/auth/session', { session_id: sessionId });
+  exchangeSession: async (sessionId: string, role?: string) => {
+    const response = await api.post('/auth/session', { 
+      session_id: sessionId,
+      role: role || 'studente'
+    });
     return response.data;
   },
   getMe: async () => {
