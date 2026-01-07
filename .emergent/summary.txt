@@ -1,0 +1,182 @@
+<analysis>
+
+**original_problem_statement:**
+The user wants to build a complete mobile application for a music academy named Accademia de I Musici.
+
+**PRODUCT REQUIREMENTS (based on the latest user request):**
+1.  **Unified User System:** A single  table for all roles (administrator, teacher, student).
+2.  **Role-Based Access Control:**
+    *   **Administrator:** Logs in using a two-factor authentication system: a secret PIN followed by a Google account login. The admin is responsible for managing all other users. The authorized admin email is .
+    *   **Teachers & Students:** Log in using traditional email and password. Their accounts are created and managed exclusively by the administrator.
+3.  **No Self-Service Recovery:** Teachers and students cannot reset their passwords or recover their accounts. This must be done by an administrator.
+4.  **Database Schema:** The user provided a detailed schema for key tables:
+    *   : Main user table with roles.
+    *   : For the admin's PIN and Google ID.
+    *   : To manage active user sessions.
+    *    & : Optional but recommended tables for specific user details.
+5.  **Teacher/Student Features:**
+    *   The app should include functionality for teachers to manage attendance and assignments.
+    *   A dedicated Attendance screen should replace the old Courses screen, featuring an engaging table design.
+    *   Students and Teachers must select their instrument upon registration/login.
+
+**User's preferred language**: Italiano. The next agent MUST respond in Italian.
+
+**what currently exists?**
+A full-stack Expo (React Native) and FastAPI application has been built. The initial MVP with simple Google login was completed and then refactored twice based on user feedback. The current architecture reflects a major pivot to a complex, custom authentication system: 2-factor (PIN + Google) for admins and email/password for teachers/students. The backend has been significantly rewritten to support this new logic with new DB models and API endpoints. The frontend has new login forms and an updated authentication context, but it is currently broken.
+
+**Last working item**:
+- **Last item agent was working:** The agent was attempting to fix a critical bug in the new administrator two-factor authentication flow. The user reported an authentication loop where they were redirected back to the login page after the Google sign-in step. While attempting to fix this, a new, more severe error emerged.
+- **Status:** IN PROGRESS
+- **Agent Testing Done:** N
+- **Which testing method agent to use?** Manual testing. First, the agent must fix the critical crash. Then, it should manually perform the full admin login flow (enter PIN, log in with Google) to verify the fix and ensure the original redirect loop is also resolved.
+- **User Testing Done:** N
+
+**All Pending/In progress Issue list**:
+- **Issue 1:** (P0 - CRITICAL BLOCKER) Frontend crashes when loading the admin dashboard.
+- **Issue 2:** (P1 - High) The original administrator authentication loop may still exist.
+
+**Issues Detail:**
+- **Issue 1:**
+    - **Description:** The app crashes on the admin dashboard screen () with the error . This happens because the  hook is returning an  user object, and the component tries to access its properties.
+    - **Attempted fixes:** No fixes have been attempted for this specific crash. It appeared after the agent tried to fix the underlying authentication loop.
+    - **Next debug checklist:**
+        1.  **File:**  (DashboardScreen).
+        2.  **Action:** Add a loading state or a conditional check to prevent the component from rendering if the  object from  is not yet available. E.g., .
+        3.  **File:** .
+        4.  **Action:** Investigate the  and subsequent state-setting logic. Use  to trace the  object and session token after the API call to  returns. Ensure the  state update is being called correctly with valid data.
+        5.  **Check Backend Response:** Verify what the  endpoint is returning. It should return the full user object and a session token.
+    - **Why fix this issue and what will be achieved with the fix?** This is a critical crash that makes the admin part of the application completely unusable. Fixing it is necessary to proceed with any other development or testing.
+    - **Status:** IN PROGRESS
+    - **Is recurring issue?** N
+    - **Should Test frontend/backend/both after fix?** Both. Test the frontend login flow and verify the backend session creation.
+    - **Blocked on other issue:** None. This is the primary blocker.
+
+- **Issue 2:**
+    - **Description:** After entering the correct PIN and logging in with Google, the administrator is redirected back to the login page instead of the dashboard. This was the original issue reported by the user before the crash appeared.
+    - **Attempted fixes:** The agent modified  to be more flexible with the admin's Google email and updated  to handle the session. These changes inadvertently introduced the new crash (Issue 1).
+    - **Next debug checklist:**
+        1.  This issue can only be tested after **Issue 1 is resolved**.
+        2.  Once the dashboard loads, check if the session token is correctly stored in .
+        3.  Review the navigation logic in  and  to ensure that it correctly routes authenticated admins to the dashboard and prevents them from being sent back to the login screen.
+    - **Why fix this issue and what will be achieved with the fix?** This fix is essential for the core administrator login experience to function as requested.
+    - **Status:** IN PROGRESS
+    - **Is recurring issue?** Y
+    - **Should Test frontend/backend/both after fix?** Both.
+    - **Blocked on other issue:** Issue 1
+
+**In progress Task List**:
+- **Task 1:** Complete the implementation and debugging of the new authentication system.
+    - **Where to resume:** Start by fixing the dashboard crash (Issue 1) as outlined in the debug checklist.
+    - **What will be achieved with this?** A functional, secure, and role-based login system as per the user's latest, detailed requirements.
+    - **Status:** IN PROGRESS
+    - **Should Test frontend/backend/both after fix?** Both.
+    - **Blocked on something:** Blocked by the two issues listed above.
+
+**Upcoming and Future Tasks**
+- **Upcoming Tasks:**
+    - (P0) Implement full functionality for the Teacher Dashboard, including API integrations for marking attendance and managing assignments ().
+    - (P1) Implement the Student Dashboard to view their attendance, assignments, and other relevant course information.
+    - (P1) Implement the administrator's Users management page to allow CRUD operations on teacher and student accounts.
+    - (P2) Flesh out the Payments and Notifications tabs, adapting them to the new user and authentication structure.
+- **Future Tasks:**
+    - Implement a system for automatic email reminders.
+    - Add functionality to export the attendance log as a PDF.
+    - Create custom dashboards for each user role (Student, Teacher).
+
+**Completed work in this session**
+- **List of all completed tasks with file and method name:**
+    - Initial Backend Scaffolding with FastAPI ().
+    - Initial Frontend Scaffolding with Expo Router ().
+    - **MVP with Google Auth (Now Obsolete):** Implemented a basic version with Google-only login, admin dashboard, and tab navigation.
+    - **Role & Instrument Selection:** Implemented UI for selecting a role and instrument on the login screen (). Backend was updated to support this ().
+    - **Attendance Screen UI:** Created the initial UI for the Attendance tab, replacing the old Courses tab ().
+    - **Auth System Overhaul (In Progress):** Rewrote large parts of the backend () and frontend (, , ) to support the new PIN+Google/Email+Password authentication system.
+
+**Earlier issues found/mentioned but not fixed**
+All known issues are captured in the All Pending/In progress Issue list section.
+
+**Known issue recurrence from previous fork**
+- **Issue recurrence in previous fork:** None.
+- **Recurrence count:** 0
+- **Status:** NA
+
+**Code Architecture**
+- **Frameworks:** FastAPI (backend), Expo/React Native (frontend).
+- **Database:** MongoDB.
+- **Routing:** File-based routing with  in the  directory.
+- **State Management:** Zustand, primarily managed through .
+- **Structure:** A monolithic  file and a standard Expo project structure in .
+
+**Key Technical Concepts**
+- **Authentication:** Custom two-factor (PIN + Google OAuth) for admins, and email/password with  hashing for other roles. Session management via JWT-like tokens.
+- **API:** RESTful API built with FastAPI and Pydantic for data validation.
+- **Mobile UI:** Built with React Native components and Tamagui for styling.
+- **Async Storage:** Used on the mobile client to persist session tokens.
+
+**key DB schema**
+- **users**: 
+- **admin_access**:  (as per user spec, implemented within user model for now)
+- **sessions**:  (as per user spec, implemented)
+- **attendance, homework**: New collections and models added to .
+
+**changes in tech stack**
+- The authentication mechanism was completely changed from a simple Google OAuth flow to a complex, custom hybrid system.
+
+**All files of reference**
+- ****: Contains the entire backend logic, including all models, API endpoints, and authentication logic. It has been heavily modified to support the new auth system.
+- ****: Manages all frontend authentication state and logic. It's central to fixing the current bug.
+- ****: The main login/landing page. Contains the UI for PIN entry and email/password login.
+- ****: The Admin Dashboard screen. **This is the file that is currently crashing.**
+- ****: The Axios-based service for all frontend-backend communication.
+- ****: Contains all TypeScript type definitions, updated for the new models.
+- ****: The new screen for managing attendance, which will be the focus after the auth bug is fixed.
+- ****: The root layout component, which handles initial routing based on authentication status.
+
+**Critical Info for New Agent**
+- **The authentication system has been completely rebuilt.** Do not refer to the initial Google-only login flow. The new flow is the source of truth and is currently broken.
+- The immediate priority is to **fix the frontend crash** on the admin dashboard (). This is preventing any further progress.
+- The user-specified administrator email to be used for testing the Google login part of the 2FA is .
+- Once the crash is fixed, you must verify that the original authentication loop is also resolved.
+
+**documents created in this job**
+-  (Note: This file's contents regarding backend tests are likely outdated due to the major auth system refactor).
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User (Msg 157):** Provided a very detailed, completely new set of requirements for the authentication system, invalidating the previous implementation. Requested a unified user table, 2FA for admins (PIN + Google), and email/password for teachers/students.
+2.  **Agent (Msg 158-171):** Acknowledged the new requirements and began a massive refactor of the backend and frontend to implement them. Reset the database and seeded it with new test users.
+3.  **User (Msg 172):** Reported a critical bug: an authentication loop for the admin role. After Google login, the app redirects back to the home page.
+4.  **Agent (Msg 173-174):** Acknowledged the issue and attempted a fix in .
+5.  **User (Msg 175):** Reported that the fix did not work and the issue persists (ma mi riporta ancora nella home).
+6.  **Agent (Msg 176-180):** Investigated logs, found a 401 error, and deduced the Google email didn't match the one in the DB. Attempted another fix in the backend.
+7.  **User (Msg 181):** Provided the correct admin email to use: .
+8.  **Agent (Msg 182-183):** Updated the admin email in the database.
+9.  **System (Msg 184):** A new, critical crash appeared on the frontend:  on the dashboard.
+10. **Agent (Msg 185):** Acknowledged the new crash and correctly identified that the dashboard components need to be updated to handle the new user data structure.
+
+**Project Health Check:**
+- **Broken:** The primary user flow (administrator login) is completely broken due to a critical frontend crash.
+
+**3rd Party Integrations**
+- Google OAuth: Used for the second factor of the admin login.
+
+**Testing status**
+- **Testing agent used after significant changes:** NO. The agent performed manual  tests on earlier versions, but the latest major refactor has not been tested by an agent.
+- **Troubleshoot agent used after agent stuck in loop:** NO.
+- **Test files created:** None.
+- **Known regressions:** The entire admin login flow has regressed and is now non-functional.
+
+**Credentials to test flow:**
+- **Admin:**
+    - PIN: 
+    - Google Account: 
+- **Student:**
+    - Email: 
+    - Password: 
+- **Teacher:**
+    - Email: 
+    - Password: 
+
+**What agent forgot to execute**
+The agent has been responsive to user requests. The main issue is not omission but the introduction of critical bugs during a large-scale refactor, which is a common development challenge. The current implementation is incomplete and buggy but on the path laid out by the user.
+
+</analysis>
