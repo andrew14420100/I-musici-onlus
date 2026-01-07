@@ -69,6 +69,21 @@ class NotificationType(str, Enum):
 
 # ===================== MODELS =====================
 
+# Instruments enum
+class Instrument(str, Enum):
+    PIANOFORTE = "pianoforte"
+    CANTO = "canto"
+    PERCUSSIONI = "percussioni"
+    VIOLINO = "violino"
+    CHITARRA = "chitarra"
+    CHITARRA_ELETTRICA = "chitarra_elettrica"
+
+# Attendance status
+class AttendanceStatus(str, Enum):
+    PRESENT = "presente"
+    ABSENT = "assente"
+    JUSTIFIED = "giustificato"
+
 # User Models
 class User(BaseModel):
     user_id: str
@@ -78,6 +93,7 @@ class User(BaseModel):
     role: UserRole = UserRole.STUDENT
     status: UserStatus = UserStatus.ACTIVE
     phone: Optional[str] = None
+    instrument: Optional[str] = None  # For students and teachers
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UserCreate(BaseModel):
@@ -85,12 +101,61 @@ class UserCreate(BaseModel):
     name: str
     phone: Optional[str] = None
     role: UserRole = UserRole.STUDENT
+    instrument: Optional[str] = None
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     status: Optional[UserStatus] = None
     role: Optional[UserRole] = None
+    instrument: Optional[str] = None
+
+# Attendance Models
+class Attendance(BaseModel):
+    attendance_id: str = Field(default_factory=lambda: f"att_{uuid.uuid4().hex[:12]}")
+    lesson_id: str
+    student_id: str
+    teacher_id: str
+    instrument: str
+    date: datetime
+    status: AttendanceStatus = AttendanceStatus.PRESENT
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class AttendanceCreate(BaseModel):
+    lesson_id: Optional[str] = None
+    student_id: str
+    date: str  # YYYY-MM-DD format
+    status: AttendanceStatus = AttendanceStatus.PRESENT
+    notes: Optional[str] = None
+
+class AttendanceUpdate(BaseModel):
+    status: Optional[AttendanceStatus] = None
+    notes: Optional[str] = None
+
+# Assignment Models
+class Assignment(BaseModel):
+    assignment_id: str = Field(default_factory=lambda: f"assign_{uuid.uuid4().hex[:12]}")
+    teacher_id: str
+    student_id: str
+    instrument: str
+    title: str
+    description: str
+    due_date: datetime
+    completed: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class AssignmentCreate(BaseModel):
+    student_id: str
+    title: str
+    description: str
+    due_date: str  # YYYY-MM-DD format
+
+class AssignmentUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    completed: Optional[bool] = None
 
 # Course Models
 class Course(BaseModel):
