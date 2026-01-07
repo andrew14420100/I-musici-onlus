@@ -98,6 +98,18 @@ export default function DashboardScreen() {
     );
   }
 
+  // Get role icon
+  const getRoleIcon = () => {
+    switch (user?.ruolo) {
+      case 'amministratore':
+        return 'shield-checkmark';
+      case 'insegnante':
+        return 'school';
+      default:
+        return 'person';
+    }
+  };
+
   return (
     <ScrollView 
       style={styles.container}
@@ -109,33 +121,25 @@ export default function DashboardScreen() {
       <View style={styles.welcomeSection}>
         <View style={styles.welcomeContent}>
           <Text style={styles.welcomeText}>Benvenuto,</Text>
-          <Text style={styles.userName}>{user?.name}</Text>
+          <Text style={styles.userName}>{getDisplayName()}</Text>
           <View style={styles.roleBadge}>
             <Ionicons 
-              name={user?.role === UserRole.ADMIN ? 'shield-checkmark' : user?.role === UserRole.TEACHER ? 'school' : 'person'} 
+              name={getRoleIcon()} 
               size={14} 
               color="#4A90D9" 
             />
             <Text style={styles.roleText}>{getRoleLabel()}</Text>
           </View>
         </View>
-        {user?.picture ? (
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-            </Text>
-          </View>
-        )}
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {getUserInitials()}
+          </Text>
+        </View>
       </View>
 
       {/* Admin Stats */}
-      {user?.role === UserRole.ADMIN && stats && (
+      {user?.ruolo === 'amministratore' && stats && (
         <View style={styles.statsSection}>
           <Text style={styles.sectionTitle}>Riepilogo Generale</Text>
           
