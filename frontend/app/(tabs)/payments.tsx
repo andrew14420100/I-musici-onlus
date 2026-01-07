@@ -323,7 +323,7 @@ export default function PaymentsScreen() {
               )}
 
               <View style={styles.formGroup}>
-                <Text style={styles.label}>Importo (\u20ac) *</Text>
+                <Text style={styles.label}>Importo (€) *</Text>
                 <TextInput
                   style={styles.input}
                   value={formData.amount}
