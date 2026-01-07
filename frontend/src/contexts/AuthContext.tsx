@@ -12,7 +12,9 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: () => Promise<void>;
+  selectedRole: string | null;
+  setSelectedRole: (role: string) => void;
+  login: (role?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -34,14 +36,23 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
 
-  const processSessionId = async (sessionId: string) => {
+  const processSessionId = async (sessionId: string, role?: string) => {
     try {
-      console.log('Processing session ID...');
-      const response = await authApi.exchangeSession(sessionId);
+      console.log('Processing session ID with role:', role);
+      
+      // Get role from storage if not provided
+      let roleToUse = role;
+      if (!roleToUse) {
+        roleToUse = await AsyncStorage.getItem('pending_role') || 'studente';
+      }
+      
+      const response = await authApi.exchangeSession(sessionId, roleToUse);
       
       if (response.session_token) {
         await AsyncStorage.setItem('session_token', response.session_token);
+        await AsyncStorage.removeItem('pending_role');
         setUser(response.user);
         
         // Seed database with sample data
@@ -105,7 +116,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     init();
   }, []);
 
-  const login = async () => {
+  const login = async (role?: string) => {
+    // Store the selected role for after auth redirect
+    const roleToUse = role || selectedRole || 'studente';
+    await AsyncStorage.setItem('pending_role', roleToUse);
+    
     const redirectUrl = Platform.OS === 'web'
       ? `${BACKEND_URL}/`
       : Linking.createURL('/');
@@ -121,7 +136,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const sessionIdMatch = result.url.match(/session_id=([^&]+)/);
         if (sessionIdMatch) {
           setIsLoading(true);
-          await processSessionId(sessionIdMatch[1]);
+          await processSessionId(sessionIdMatch[1], roleToUse);
           setIsLoading(false);
         }
       }
@@ -135,7 +150,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('Logout error:', error);
     }
     await AsyncStorage.removeItem('session_token');
+    await AsyncStorage.removeItem('pending_role');
     setUser(null);
+    setSelectedRole(null);
   };
 
   const refreshUser = async () => {
@@ -153,6 +170,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         user,
         isLoading,
         isAuthenticated: !!user,
+        selectedRole,
+        setSelectedRole,
         login,
         logout,
         refreshUser,
