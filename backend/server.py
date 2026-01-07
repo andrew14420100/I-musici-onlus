@@ -1364,7 +1364,7 @@ async def seed_database():
             "notifiche": 2
         },
         "credenziali_test": {
-            "admin": {"email": "acc.imusici@gmail.com", "pin": "1234", "note": "Dopo PIN usare Google con stessa email"},
+            "admin": {"email": "acc.imusici@gmail.com", "password": "Accademia2026"},
             "insegnante": {"email": "mario.rossi@musici.it", "password": "teacher123"},
             "allievo": {"email": "giulia.ferrari@email.it", "password": "student123"}
         }
