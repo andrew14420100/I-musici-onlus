@@ -22,7 +22,7 @@ export default function TabsLayout() {
     return null;
   }
 
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.ruolo === 'amministratore';
 
   return (
     <Tabs
