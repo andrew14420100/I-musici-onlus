@@ -106,3 +106,15 @@ export interface AdminStats {
   notifiche_attive: number;
   presenze_oggi: number;
 }
+
+// Legacy compatibility - some code uses these old field names
+export interface LegacyAdminStats {
+  studenti_attivi: number;
+  insegnanti_attivi: number;
+  corsi_attivi: number;
+  lezioni_settimana: number;
+  pagamenti_studenti_non_pagati: number;
+  compensi_insegnanti_non_pagati: number;
+  notifiche_attive: number;
+  lezioni_oggi: any[];
+}
