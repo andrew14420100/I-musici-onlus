@@ -13,8 +13,10 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   selectedRole: string | null;
+  selectedInstrument: string | null;
   setSelectedRole: (role: string) => void;
-  login: (role?: string) => Promise<void>;
+  setSelectedInstrument: (instrument: string) => void;
+  login: (role?: string, instrument?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -37,22 +39,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [selectedInstrument, setSelectedInstrument] = useState<string | null>(null);
 
-  const processSessionId = async (sessionId: string, role?: string) => {
+  const processSessionId = async (sessionId: string, role?: string, instrument?: string) => {
     try {
-      console.log('Processing session ID with role:', role);
+      console.log('Processing session ID with role:', role, 'instrument:', instrument);
       
-      // Get role from storage if not provided
+      // Get role and instrument from storage if not provided
       let roleToUse = role;
+      let instrumentToUse = instrument;
+      
       if (!roleToUse) {
         roleToUse = await AsyncStorage.getItem('pending_role') || 'studente';
       }
+      if (!instrumentToUse) {
+        instrumentToUse = await AsyncStorage.getItem('pending_instrument') || undefined;
+      }
       
-      const response = await authApi.exchangeSession(sessionId, roleToUse);
+      const response = await authApi.exchangeSession(sessionId, roleToUse, instrumentToUse || undefined);
       
       if (response.session_token) {
         await AsyncStorage.setItem('session_token', response.session_token);
         await AsyncStorage.removeItem('pending_role');
+        await AsyncStorage.removeItem('pending_instrument');
         setUser(response.user);
         
         // Seed database with sample data
@@ -116,10 +125,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     init();
   }, []);
 
-  const login = async (role?: string) => {
-    // Store the selected role for after auth redirect
+  const login = async (role?: string, instrument?: string) => {
+    // Store the selected role and instrument for after auth redirect
     const roleToUse = role || selectedRole || 'studente';
+    const instrumentToUse = instrument || selectedInstrument;
+    
     await AsyncStorage.setItem('pending_role', roleToUse);
+    if (instrumentToUse) {
+      await AsyncStorage.setItem('pending_instrument', instrumentToUse);
+    }
     
     const redirectUrl = Platform.OS === 'web'
       ? `${BACKEND_URL}/`
@@ -136,7 +150,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const sessionIdMatch = result.url.match(/session_id=([^&]+)/);
         if (sessionIdMatch) {
           setIsLoading(true);
-          await processSessionId(sessionIdMatch[1], roleToUse);
+          await processSessionId(sessionIdMatch[1], roleToUse, instrumentToUse || undefined);
           setIsLoading(false);
         }
       }
@@ -151,8 +165,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
     await AsyncStorage.removeItem('session_token');
     await AsyncStorage.removeItem('pending_role');
+    await AsyncStorage.removeItem('pending_instrument');
     setUser(null);
     setSelectedRole(null);
+    setSelectedInstrument(null);
   };
 
   const refreshUser = async () => {
@@ -171,7 +187,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isLoading,
         isAuthenticated: !!user,
         selectedRole,
+        selectedInstrument,
         setSelectedRole,
+        setSelectedInstrument,
         login,
         logout,
         refreshUser,
