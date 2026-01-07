@@ -12,6 +12,8 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 from enum import Enum
+from passlib.context import CryptContext
+from jose import JWTError, jwt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,7 +21,7 @@ load_dotenv(ROOT_DIR / '.env')
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'test_database')]
 
 # Create the main app without a prefix
 app = FastAPI(title="Accademia de 'I Musici' API")
@@ -34,24 +36,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# JWT Configuration
+SECRET_KEY = os.environ.get("SECRET_KEY", "accademia-musici-secret-key-2025")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_DAYS = 7
+
 # ===================== ENUMS =====================
 class UserRole(str, Enum):
-    ADMIN = "admin"
-    STUDENT = "studente"
+    ADMIN = "amministratore"
     TEACHER = "insegnante"
+    STUDENT = "allievo"
 
-class UserStatus(str, Enum):
-    ACTIVE = "attivo"
-    INACTIVE = "inattivo"
-
-class CourseStatus(str, Enum):
-    ACTIVE = "attivo"
-    INACTIVE = "inattivo"
-
-class LessonStatus(str, Enum):
-    SCHEDULED = "programmata"
-    COMPLETED = "completata"
-    CANCELLED = "annullata"
+class AttendanceStatus(str, Enum):
+    PRESENT = "presente"
+    ABSENT = "assente"
+    JUSTIFIED = "giustificato"
 
 class PaymentStatus(str, Enum):
     PENDING = "in_attesa"
@@ -62,204 +64,210 @@ class PaymentType(str, Enum):
     STUDENT_FEE = "quota_studente"
     TEACHER_COMPENSATION = "compenso_insegnante"
 
-class NotificationType(str, Enum):
-    GENERAL = "generale"
-    PAYMENT_REMINDER = "promemoria_pagamento"
-    LESSON_REMINDER = "promemoria_lezione"
+# Instruments list
+INSTRUMENTS = ["pianoforte", "canto", "percussioni", "violino", "chitarra", "chitarra_elettrica"]
 
 # ===================== MODELS =====================
 
-# Instruments enum
-class Instrument(str, Enum):
-    PIANOFORTE = "pianoforte"
-    CANTO = "canto"
-    PERCUSSIONI = "percussioni"
-    VIOLINO = "violino"
-    CHITARRA = "chitarra"
-    CHITARRA_ELETTRICA = "chitarra_elettrica"
-
-# Attendance status
-class AttendanceStatus(str, Enum):
-    PRESENT = "presente"
-    ABSENT = "assente"
-    JUSTIFIED = "giustificato"
-
-# User Models
+# 1. UTENTI - Main users table
 class User(BaseModel):
-    user_id: str
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ruolo: UserRole
+    nome: str
+    cognome: str
     email: str
-    name: str
-    picture: Optional[str] = None
-    role: UserRole = UserRole.STUDENT
-    status: UserStatus = UserStatus.ACTIVE
-    phone: Optional[str] = None
-    instrument: Optional[str] = None  # For students and teachers
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    password_hash: str
+    attivo: bool = True
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ultimo_accesso: Optional[datetime] = None
+    note_admin: Optional[str] = None
 
 class UserCreate(BaseModel):
+    ruolo: UserRole
+    nome: str
+    cognome: str
     email: str
-    name: str
-    phone: Optional[str] = None
-    role: UserRole = UserRole.STUDENT
-    instrument: Optional[str] = None
+    password: str  # Plain password, will be hashed
+    note_admin: Optional[str] = None
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    status: Optional[UserStatus] = None
-    role: Optional[UserRole] = None
-    instrument: Optional[str] = None
+    nome: Optional[str] = None
+    cognome: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None  # New password if changing
+    attivo: Optional[bool] = None
+    note_admin: Optional[str] = None
+
+class UserResponse(BaseModel):
+    id: str
+    ruolo: UserRole
+    nome: str
+    cognome: str
+    email: str
+    attivo: bool
+    data_creazione: datetime
+    ultimo_accesso: Optional[datetime] = None
+
+# 2. ACCESSO_AMMINISTRAZIONE - Admin 2-factor auth
+class AdminAccess(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    utente_id: str
+    pin_hash: str
+    pin_attivo: bool = True
+    google_id: Optional[str] = None
+    ultimo_accesso: Optional[datetime] = None
+
+class AdminAccessCreate(BaseModel):
+    utente_id: str
+    pin: str  # Plain PIN, will be hashed
+
+class AdminAccessUpdate(BaseModel):
+    pin: Optional[str] = None
+    pin_attivo: Optional[bool] = None
+
+# 3. SESSIONI - Session management
+class Session(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    utente_id: str
+    token_sessione: str
+    dispositivo: str = "web"
+    ip: Optional[str] = None
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    data_scadenza: datetime
+
+# 4. ALLIEVI_DETTAGLIO - Student details
+class StudentDetail(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    utente_id: str
+    telefono: Optional[str] = None
+    data_nascita: Optional[str] = None
+    corso_principale: Optional[str] = None  # Instrument
+    note: Optional[str] = None
+
+class StudentDetailCreate(BaseModel):
+    telefono: Optional[str] = None
+    data_nascita: Optional[str] = None
+    corso_principale: Optional[str] = None
+    note: Optional[str] = None
+
+# 5. INSEGNANTI_DETTAGLIO - Teacher details
+class TeacherDetail(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    utente_id: str
+    specializzazione: Optional[str] = None  # Instrument
+    compenso_orario: Optional[float] = None
+    note: Optional[str] = None
+
+class TeacherDetailCreate(BaseModel):
+    specializzazione: Optional[str] = None
+    compenso_orario: Optional[float] = None
+    note: Optional[str] = None
 
 # Attendance Models
 class Attendance(BaseModel):
-    attendance_id: str = Field(default_factory=lambda: f"att_{uuid.uuid4().hex[:12]}")
-    lesson_id: str
-    student_id: str
-    teacher_id: str
-    instrument: str
-    date: datetime
-    status: AttendanceStatus = AttendanceStatus.PRESENT
-    notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    allievo_id: str
+    insegnante_id: str
+    data: datetime
+    stato: AttendanceStatus = AttendanceStatus.PRESENT
+    note: Optional[str] = None
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AttendanceCreate(BaseModel):
-    lesson_id: Optional[str] = None
-    student_id: str
-    date: str  # YYYY-MM-DD format
-    status: AttendanceStatus = AttendanceStatus.PRESENT
-    notes: Optional[str] = None
-
-class AttendanceUpdate(BaseModel):
-    status: Optional[AttendanceStatus] = None
-    notes: Optional[str] = None
+    allievo_id: str
+    data: str  # YYYY-MM-DD format
+    stato: AttendanceStatus = AttendanceStatus.PRESENT
+    note: Optional[str] = None
 
 # Assignment Models
 class Assignment(BaseModel):
-    assignment_id: str = Field(default_factory=lambda: f"assign_{uuid.uuid4().hex[:12]}")
-    teacher_id: str
-    student_id: str
-    instrument: str
-    title: str
-    description: str
-    due_date: datetime
-    completed: bool = False
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    insegnante_id: str
+    allievo_id: str
+    titolo: str
+    descrizione: str
+    data_scadenza: datetime
+    completato: bool = False
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AssignmentCreate(BaseModel):
-    student_id: str
-    title: str
-    description: str
-    due_date: str  # YYYY-MM-DD format
-
-class AssignmentUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    due_date: Optional[str] = None
-    completed: Optional[bool] = None
-
-# Course Models
-class Course(BaseModel):
-    course_id: str = Field(default_factory=lambda: f"course_{uuid.uuid4().hex[:12]}")
-    name: str
-    instrument: str
-    description: Optional[str] = None
-    status: CourseStatus = CourseStatus.ACTIVE
-    teacher_ids: List[str] = []
-    student_ids: List[str] = []
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class CourseCreate(BaseModel):
-    name: str
-    instrument: str
-    description: Optional[str] = None
-
-class CourseUpdate(BaseModel):
-    name: Optional[str] = None
-    instrument: Optional[str] = None
-    description: Optional[str] = None
-    status: Optional[CourseStatus] = None
-
-# Lesson Models
-class Lesson(BaseModel):
-    lesson_id: str = Field(default_factory=lambda: f"lesson_{uuid.uuid4().hex[:12]}")
-    course_id: str
-    teacher_id: str
-    student_id: str
-    date_time: datetime
-    duration_minutes: int = 60
-    status: LessonStatus = LessonStatus.SCHEDULED
-    notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class LessonCreate(BaseModel):
-    course_id: str
-    teacher_id: str
-    student_id: str
-    date_time: datetime
-    duration_minutes: int = 60
-    notes: Optional[str] = None
-
-class LessonUpdate(BaseModel):
-    date_time: Optional[datetime] = None
-    duration_minutes: Optional[int] = None
-    status: Optional[LessonStatus] = None
-    notes: Optional[str] = None
+    allievo_id: str
+    titolo: str
+    descrizione: str
+    data_scadenza: str  # YYYY-MM-DD format
 
 # Payment Models
 class Payment(BaseModel):
-    payment_id: str = Field(default_factory=lambda: f"payment_{uuid.uuid4().hex[:12]}")
-    user_id: str
-    payment_type: PaymentType
-    amount: float
-    description: str
-    due_date: datetime
-    status: PaymentStatus = PaymentStatus.PENDING
-    visible_to_user: bool = True
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    utente_id: str
+    tipo: PaymentType
+    importo: float
+    descrizione: str
+    data_scadenza: datetime
+    stato: PaymentStatus = PaymentStatus.PENDING
+    visibile_utente: bool = True
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class PaymentCreate(BaseModel):
-    user_id: str
-    payment_type: PaymentType
-    amount: float
-    description: str
-    due_date: datetime
-
-class PaymentUpdate(BaseModel):
-    amount: Optional[float] = None
-    description: Optional[str] = None
-    due_date: Optional[datetime] = None
-    status: Optional[PaymentStatus] = None
-    visible_to_user: Optional[bool] = None
+    utente_id: str
+    tipo: PaymentType
+    importo: float
+    descrizione: str
+    data_scadenza: str
 
 # Notification Models
 class Notification(BaseModel):
-    notification_id: str = Field(default_factory=lambda: f"notif_{uuid.uuid4().hex[:12]}")
-    title: str
-    message: str
-    notification_type: NotificationType = NotificationType.GENERAL
-    recipient_ids: List[str] = []  # Empty means all users
-    is_active: bool = True
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    titolo: str
+    messaggio: str
+    tipo: str = "generale"
+    destinatari_ids: List[str] = []  # Empty = all users
+    attivo: bool = True
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class NotificationCreate(BaseModel):
-    title: str
-    message: str
-    notification_type: NotificationType = NotificationType.GENERAL
-    recipient_ids: List[str] = []
+    titolo: str
+    messaggio: str
+    tipo: str = "generale"
+    destinatari_ids: List[str] = []
 
-class NotificationUpdate(BaseModel):
-    title: Optional[str] = None
-    message: Optional[str] = None
-    is_active: Optional[bool] = None
+# Login Models
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
-# Session Models
-class SessionData(BaseModel):
-    user_id: str
-    session_token: str
-    expires_at: datetime
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class AdminPinRequest(BaseModel):
+    email: str
+    pin: str
 
-# ===================== AUTH HELPERS =====================
+class AdminGoogleRequest(BaseModel):
+    email: str
+    session_id: str  # From Google OAuth
+
+# ===================== HELPER FUNCTIONS =====================
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def decode_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
 
 async def get_session_token(request: Request) -> Optional[str]:
     """Extract session token from cookie or Authorization header"""
@@ -270,43 +278,255 @@ async def get_session_token(request: Request) -> Optional[str]:
             token = auth_header.split(" ")[1]
     return token
 
-async def get_current_user(request: Request) -> Optional[User]:
+async def get_current_user(request: Request) -> Optional[dict]:
     """Get current user from session token"""
     token = await get_session_token(request)
     if not token:
         return None
     
-    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    # Check session in database
+    session = await db.sessioni.find_one({"token_sessione": token}, {"_id": 0})
     if not session:
         return None
     
-    expires_at = session["expires_at"]
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    # Check expiration
+    scadenza = session.get("data_scadenza")
+    if scadenza:
+        if isinstance(scadenza, str):
+            scadenza = datetime.fromisoformat(scadenza.replace('Z', '+00:00'))
+        if scadenza.tzinfo is None:
+            scadenza = scadenza.replace(tzinfo=timezone.utc)
+        if scadenza <= datetime.now(timezone.utc):
+            return None
     
-    if expires_at <= datetime.now(timezone.utc):
+    # Get user
+    user = await db.utenti.find_one({"id": session["utente_id"]}, {"_id": 0})
+    if not user or not user.get("attivo", False):
         return None
     
-    user_doc = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
-    if user_doc:
-        return User(**user_doc)
-    return None
+    return user
 
-async def require_auth(request: Request) -> User:
+async def require_auth(request: Request) -> dict:
     """Require authentication - raises HTTPException if not authenticated"""
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Non autenticato")
     return user
 
-async def require_admin(request: Request) -> User:
+async def require_admin(request: Request) -> dict:
     """Require admin role"""
     user = await require_auth(request)
-    if user.role != UserRole.ADMIN:
+    if user.get("ruolo") != UserRole.ADMIN.value:
         raise HTTPException(status_code=403, detail="Accesso negato - Solo amministratori")
     return user
 
+async def require_teacher_or_admin(request: Request) -> dict:
+    """Require teacher or admin role"""
+    user = await require_auth(request)
+    if user.get("ruolo") not in [UserRole.ADMIN.value, UserRole.TEACHER.value]:
+        raise HTTPException(status_code=403, detail="Accesso negato")
+    return user
+
 # ===================== AUTH ROUTES =====================
+
+@api_router.post("/auth/login")
+async def login(login_data: LoginRequest, request: Request, response: Response):
+    """Login for Students and Teachers (email + password)"""
+    # Find user by email
+    user = await db.utenti.find_one({"email": login_data.email.lower()}, {"_id": 0})
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Email o password non validi")
+    
+    # Check if user is active
+    if not user.get("attivo", False):
+        raise HTTPException(status_code=401, detail="Account disattivato. Contattare l'amministrazione.")
+    
+    # Admin cannot login with this endpoint
+    if user.get("ruolo") == UserRole.ADMIN.value:
+        raise HTTPException(status_code=401, detail="Gli amministratori devono usare il login a 2 fattori")
+    
+    # Verify password
+    if not verify_password(login_data.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Email o password non validi")
+    
+    # Create session
+    token = create_access_token({"sub": user["id"], "ruolo": user["ruolo"]})
+    scadenza = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    
+    session = {
+        "id": str(uuid.uuid4()),
+        "utente_id": user["id"],
+        "token_sessione": token,
+        "dispositivo": request.headers.get("User-Agent", "unknown")[:100],
+        "ip": request.client.host if request.client else None,
+        "data_creazione": datetime.now(timezone.utc),
+        "data_scadenza": scadenza
+    }
+    
+    await db.sessioni.insert_one(session)
+    
+    # Update last access
+    await db.utenti.update_one(
+        {"id": user["id"]},
+        {"$set": {"ultimo_accesso": datetime.now(timezone.utc)}}
+    )
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=ACCESS_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/"
+    )
+    
+    # Return user data (without sensitive fields)
+    user_response = {
+        "id": user["id"],
+        "ruolo": user["ruolo"],
+        "nome": user["nome"],
+        "cognome": user["cognome"],
+        "email": user["email"],
+        "attivo": user["attivo"]
+    }
+    
+    # Add details based on role
+    if user["ruolo"] == UserRole.STUDENT.value:
+        detail = await db.allievi_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+        if detail:
+            user_response["dettaglio"] = detail
+    elif user["ruolo"] == UserRole.TEACHER.value:
+        detail = await db.insegnanti_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+        if detail:
+            user_response["dettaglio"] = detail
+    
+    return {"user": user_response, "token": token}
+
+@api_router.post("/auth/admin/pin")
+async def admin_pin_verify(pin_data: AdminPinRequest, request: Request):
+    """Step 1 of admin login - verify PIN"""
+    # Find admin user
+    user = await db.utenti.find_one({
+        "email": pin_data.email.lower(),
+        "ruolo": UserRole.ADMIN.value
+    }, {"_id": 0})
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Credenziali non valide")
+    
+    if not user.get("attivo", False):
+        raise HTTPException(status_code=401, detail="Account disattivato")
+    
+    # Get admin access record
+    admin_access = await db.accesso_amministrazione.find_one({
+        "utente_id": user["id"]
+    }, {"_id": 0})
+    
+    if not admin_access or not admin_access.get("pin_attivo", False):
+        raise HTTPException(status_code=401, detail="PIN non configurato")
+    
+    # Verify PIN
+    if not verify_password(pin_data.pin, admin_access.get("pin_hash", "")):
+        raise HTTPException(status_code=401, detail="PIN non valido")
+    
+    # Create temporary token for Google step
+    temp_token = create_access_token(
+        {"sub": user["id"], "step": "google_pending"},
+        expires_delta=timedelta(minutes=5)
+    )
+    
+    return {
+        "message": "PIN verificato. Procedere con Google.",
+        "temp_token": temp_token,
+        "user_id": user["id"]
+    }
+
+@api_router.post("/auth/admin/google")
+async def admin_google_verify(google_data: AdminGoogleRequest, request: Request, response: Response):
+    """Step 2 of admin login - verify Google"""
+    # Find admin user
+    user = await db.utenti.find_one({
+        "email": google_data.email.lower(),
+        "ruolo": UserRole.ADMIN.value
+    }, {"_id": 0})
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Credenziali non valide")
+    
+    # Exchange session_id with Emergent Auth
+    async with httpx.AsyncClient() as client:
+        try:
+            auth_response = await client.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": google_data.session_id}
+            )
+            if auth_response.status_code != 200:
+                raise HTTPException(status_code=401, detail="Sessione Google non valida")
+            
+            google_data_resp = auth_response.json()
+        except Exception as e:
+            logger.error(f"Google auth error: {e}")
+            raise HTTPException(status_code=500, detail="Errore di autenticazione Google")
+    
+    # Verify email matches
+    if google_data_resp.get("email", "").lower() != user["email"].lower():
+        raise HTTPException(status_code=401, detail="Account Google non autorizzato")
+    
+    # Update admin access with google_id
+    await db.accesso_amministrazione.update_one(
+        {"utente_id": user["id"]},
+        {"$set": {
+            "google_id": google_data_resp.get("sub"),
+            "ultimo_accesso": datetime.now(timezone.utc)
+        }}
+    )
+    
+    # Create session
+    token = create_access_token({"sub": user["id"], "ruolo": user["ruolo"]})
+    scadenza = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    
+    session = {
+        "id": str(uuid.uuid4()),
+        "utente_id": user["id"],
+        "token_sessione": token,
+        "dispositivo": request.headers.get("User-Agent", "unknown")[:100],
+        "ip": request.client.host if request.client else None,
+        "data_creazione": datetime.now(timezone.utc),
+        "data_scadenza": scadenza
+    }
+    
+    await db.sessioni.insert_one(session)
+    
+    # Update last access
+    await db.utenti.update_one(
+        {"id": user["id"]},
+        {"$set": {"ultimo_accesso": datetime.now(timezone.utc)}}
+    )
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=ACCESS_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/"
+    )
+    
+    user_response = {
+        "id": user["id"],
+        "ruolo": user["ruolo"],
+        "nome": user["nome"],
+        "cognome": user["cognome"],
+        "email": user["email"],
+        "attivo": user["attivo"]
+    }
+    
+    return {"user": user_response, "token": token}
 
 @api_router.get("/auth/me")
 async def get_me(request: Request):
@@ -314,813 +534,365 @@ async def get_me(request: Request):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Non autenticato")
-    return user
-
-@api_router.post("/auth/session")
-async def exchange_session(request: Request, response: Response):
-    """Exchange session_id for session_token"""
-    body = await request.json()
-    session_id = body.get("session_id")
-    requested_role = body.get("role", "studente")
-    requested_instrument = body.get("instrument")  # Get instrument from body
     
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id richiesto")
+    # Remove sensitive fields
+    user_response = {
+        "id": user["id"],
+        "ruolo": user["ruolo"],
+        "nome": user["nome"],
+        "cognome": user["cognome"],
+        "email": user["email"],
+        "attivo": user["attivo"],
+        "data_creazione": user.get("data_creazione"),
+        "ultimo_accesso": user.get("ultimo_accesso")
+    }
     
-    # Validate role
-    valid_roles = ["admin", "studente", "insegnante"]
-    if requested_role not in valid_roles:
-        requested_role = "studente"
+    # Add details based on role
+    if user["ruolo"] == UserRole.STUDENT.value:
+        detail = await db.allievi_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+        if detail:
+            user_response["dettaglio"] = detail
+    elif user["ruolo"] == UserRole.TEACHER.value:
+        detail = await db.insegnanti_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+        if detail:
+            user_response["dettaglio"] = detail
     
-    # Validate instrument
-    valid_instruments = ["pianoforte", "canto", "percussioni", "violino", "chitarra", "chitarra_elettrica"]
-    if requested_instrument and requested_instrument not in valid_instruments:
-        requested_instrument = None
-    
-    # Exchange session_id with Emergent Auth
-    async with httpx.AsyncClient() as client:
-        try:
-            auth_response = await client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id}
-            )
-            if auth_response.status_code != 200:
-                raise HTTPException(status_code=401, detail="Session ID non valido")
-            
-            user_data = auth_response.json()
-        except Exception as e:
-            logger.error(f"Auth error: {e}")
-            raise HTTPException(status_code=500, detail="Errore di autenticazione")
-    
-    # Check if user exists
-    existing_user = await db.users.find_one({"email": user_data["email"]}, {"_id": 0})
-    
-    if existing_user:
-        user_id = existing_user["user_id"]
-        # Update role and instrument
-        update_data = {"role": requested_role}
-        if requested_instrument:
-            update_data["instrument"] = requested_instrument
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": update_data}
-        )
-    else:
-        # Create new user with requested role and instrument
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        new_user = {
-            "user_id": user_id,
-            "email": user_data["email"],
-            "name": user_data["name"],
-            "picture": user_data.get("picture"),
-            "role": requested_role,
-            "instrument": requested_instrument,
-            "status": UserStatus.ACTIVE.value,
-            "phone": None,
-            "created_at": datetime.now(timezone.utc)
-        }
-        await db.users.insert_one(new_user)
-    
-    # Create session
-    session_token = user_data["session_token"]
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    
-    await db.user_sessions.delete_many({"user_id": user_id})
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": expires_at,
-        "created_at": datetime.now(timezone.utc)
-    })
-    
-    # Get updated user
-    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    
-    # Set cookie
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        max_age=7 * 24 * 60 * 60,
-        path="/"
-    )
-    
-    return {"user": user_doc, "session_token": session_token}
+    return user_response
 
 @api_router.post("/auth/logout")
 async def logout(request: Request, response: Response):
     """Logout current user"""
     token = await get_session_token(request)
     if token:
-        await db.user_sessions.delete_many({"session_token": token})
+        await db.sessioni.delete_many({"token_sessione": token})
     
     response.delete_cookie("session_token", path="/")
     return {"message": "Logout effettuato"}
 
-# ===================== USER ROUTES =====================
+# ===================== USER MANAGEMENT (Admin only) =====================
 
-@api_router.get("/users", response_model=List[User])
+@api_router.get("/utenti")
 async def get_users(
     request: Request,
-    role: Optional[str] = None,
-    status: Optional[str] = None
+    ruolo: Optional[str] = None,
+    attivo: Optional[bool] = None
 ):
-    """Get all users with optional filters"""
-    await require_auth(request)
+    """Get all users (Admin only)"""
+    await require_admin(request)
     
     query = {}
-    if role:
-        query["role"] = role
-    if status:
-        query["status"] = status
+    if ruolo:
+        query["ruolo"] = ruolo
+    if attivo is not None:
+        query["attivo"] = attivo
     
-    users = await db.users.find(query, {"_id": 0}).to_list(1000)
-    return [User(**u) for u in users]
+    users = await db.utenti.find(query, {"_id": 0, "password_hash": 0}).to_list(1000)
+    
+    # Add details for each user
+    for user in users:
+        if user["ruolo"] == UserRole.STUDENT.value:
+            detail = await db.allievi_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+            if detail:
+                user["dettaglio"] = detail
+        elif user["ruolo"] == UserRole.TEACHER.value:
+            detail = await db.insegnanti_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+            if detail:
+                user["dettaglio"] = detail
+    
+    return users
 
-@api_router.get("/users/{user_id}", response_model=User)
+@api_router.get("/utenti/{user_id}")
 async def get_user(user_id: str, request: Request):
-    """Get a specific user"""
-    await require_auth(request)
+    """Get single user (Admin only or own profile)"""
+    current_user = await require_auth(request)
     
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    # Users can only view their own profile unless admin
+    if current_user["ruolo"] != UserRole.ADMIN.value and current_user["id"] != user_id:
+        raise HTTPException(status_code=403, detail="Accesso negato")
+    
+    user = await db.utenti.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=404, detail="Utente non trovato")
-    return User(**user)
+    
+    # Add details
+    if user["ruolo"] == UserRole.STUDENT.value:
+        detail = await db.allievi_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+        if detail:
+            user["dettaglio"] = detail
+    elif user["ruolo"] == UserRole.TEACHER.value:
+        detail = await db.insegnanti_dettaglio.find_one({"utente_id": user["id"]}, {"_id": 0})
+        if detail:
+            user["dettaglio"] = detail
+    
+    return user
 
-@api_router.post("/users", response_model=User)
+@api_router.post("/utenti")
 async def create_user(user_data: UserCreate, request: Request):
-    """Create a new user (admin only)"""
+    """Create a new user (Admin only)"""
     await require_admin(request)
     
     # Check if email already exists
-    existing = await db.users.find_one({"email": user_data.email})
+    existing = await db.utenti.find_one({"email": user_data.email.lower()})
     if existing:
         raise HTTPException(status_code=400, detail="Email già registrata")
     
-    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    # Create user
+    user_id = str(uuid.uuid4())
     new_user = {
-        "user_id": user_id,
-        "email": user_data.email,
-        "name": user_data.name,
-        "phone": user_data.phone,
-        "role": user_data.role.value,
-        "status": UserStatus.ACTIVE.value,
-        "picture": None,
-        "created_at": datetime.now(timezone.utc)
+        "id": user_id,
+        "ruolo": user_data.ruolo.value,
+        "nome": user_data.nome,
+        "cognome": user_data.cognome,
+        "email": user_data.email.lower(),
+        "password_hash": hash_password(user_data.password),
+        "attivo": True,
+        "data_creazione": datetime.now(timezone.utc),
+        "ultimo_accesso": None,
+        "note_admin": user_data.note_admin
     }
-    await db.users.insert_one(new_user)
     
-    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    return User(**user_doc)
+    await db.utenti.insert_one(new_user)
+    
+    # Create admin access if role is admin
+    if user_data.ruolo == UserRole.ADMIN:
+        # Default PIN is "1234" - should be changed immediately
+        admin_access = {
+            "id": str(uuid.uuid4()),
+            "utente_id": user_id,
+            "pin_hash": hash_password("1234"),
+            "pin_attivo": True,
+            "google_id": None,
+            "ultimo_accesso": None
+        }
+        await db.accesso_amministrazione.insert_one(admin_access)
+    
+    # Return user without password
+    del new_user["password_hash"]
+    return new_user
 
-@api_router.put("/users/{user_id}", response_model=User)
+@api_router.put("/utenti/{user_id}")
 async def update_user(user_id: str, user_data: UserUpdate, request: Request):
-    """Update a user"""
-    current_user = await require_auth(request)
-    
-    # Only admin can update other users
-    if current_user.user_id != user_id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    update_dict = {k: v for k, v in user_data.model_dump().items() if v is not None}
-    if "status" in update_dict:
-        update_dict["status"] = update_dict["status"].value
-    if "role" in update_dict:
-        update_dict["role"] = update_dict["role"].value
-    
-    if update_dict:
-        await db.users.update_one({"user_id": user_id}, {"$set": update_dict})
-    
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="Utente non trovato")
-    return User(**user)
-
-@api_router.delete("/users/{user_id}")
-async def delete_user(user_id: str, request: Request):
-    """Delete a user (admin only)"""
+    """Update a user (Admin only)"""
     await require_admin(request)
     
-    result = await db.users.delete_one({"user_id": user_id})
+    # Check user exists
+    existing = await db.utenti.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Utente non trovato")
+    
+    update_dict = {}
+    if user_data.nome is not None:
+        update_dict["nome"] = user_data.nome
+    if user_data.cognome is not None:
+        update_dict["cognome"] = user_data.cognome
+    if user_data.email is not None:
+        # Check email uniqueness
+        email_exists = await db.utenti.find_one({"email": user_data.email.lower(), "id": {"$ne": user_id}})
+        if email_exists:
+            raise HTTPException(status_code=400, detail="Email già in uso")
+        update_dict["email"] = user_data.email.lower()
+    if user_data.password is not None:
+        update_dict["password_hash"] = hash_password(user_data.password)
+    if user_data.attivo is not None:
+        update_dict["attivo"] = user_data.attivo
+    if user_data.note_admin is not None:
+        update_dict["note_admin"] = user_data.note_admin
+    
+    if update_dict:
+        await db.utenti.update_one({"id": user_id}, {"$set": update_dict})
+    
+    user = await db.utenti.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return user
+
+@api_router.delete("/utenti/{user_id}")
+async def delete_user(user_id: str, request: Request):
+    """Delete a user (Admin only)"""
+    await require_admin(request)
+    
+    result = await db.utenti.delete_one({"id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Utente non trovato")
     
     # Clean up related data
-    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.sessioni.delete_many({"utente_id": user_id})
+    await db.accesso_amministrazione.delete_many({"utente_id": user_id})
+    await db.allievi_dettaglio.delete_many({"utente_id": user_id})
+    await db.insegnanti_dettaglio.delete_many({"utente_id": user_id})
     
     return {"message": "Utente eliminato"}
 
-# ===================== COURSE ROUTES =====================
+# ===================== STUDENT DETAIL ROUTES =====================
 
-@api_router.get("/courses", response_model=List[Course])
-async def get_courses(
-    request: Request,
-    status: Optional[str] = None,
-    instrument: Optional[str] = None
-):
-    """Get all courses with optional filters"""
-    await require_auth(request)
-    
-    query = {}
-    if status:
-        query["status"] = status
-    if instrument:
-        query["instrument"] = {"$regex": instrument, "$options": "i"}
-    
-    courses = await db.courses.find(query, {"_id": 0}).to_list(1000)
-    return [Course(**c) for c in courses]
-
-@api_router.get("/courses/{course_id}", response_model=Course)
-async def get_course(course_id: str, request: Request):
-    """Get a specific course"""
-    await require_auth(request)
-    
-    course = await db.courses.find_one({"course_id": course_id}, {"_id": 0})
-    if not course:
-        raise HTTPException(status_code=404, detail="Corso non trovato")
-    return Course(**course)
-
-@api_router.post("/courses", response_model=Course)
-async def create_course(course_data: CourseCreate, request: Request):
-    """Create a new course (admin only)"""
+@api_router.post("/utenti/{user_id}/dettaglio-allievo")
+async def create_student_detail(user_id: str, detail: StudentDetailCreate, request: Request):
+    """Create/update student details (Admin only)"""
     await require_admin(request)
     
-    course = Course(**course_data.model_dump())
-    await db.courses.insert_one(course.model_dump())
+    # Verify user exists and is a student
+    user = await db.utenti.find_one({"id": user_id, "ruolo": UserRole.STUDENT.value})
+    if not user:
+        raise HTTPException(status_code=404, detail="Allievo non trovato")
     
-    return course
+    # Upsert detail
+    detail_data = {
+        "utente_id": user_id,
+        "telefono": detail.telefono,
+        "data_nascita": detail.data_nascita,
+        "corso_principale": detail.corso_principale,
+        "note": detail.note
+    }
+    
+    existing = await db.allievi_dettaglio.find_one({"utente_id": user_id})
+    if existing:
+        await db.allievi_dettaglio.update_one({"utente_id": user_id}, {"$set": detail_data})
+    else:
+        detail_data["id"] = str(uuid.uuid4())
+        await db.allievi_dettaglio.insert_one(detail_data)
+    
+    return await db.allievi_dettaglio.find_one({"utente_id": user_id}, {"_id": 0})
 
-@api_router.put("/courses/{course_id}", response_model=Course)
-async def update_course(course_id: str, course_data: CourseUpdate, request: Request):
-    """Update a course (admin only)"""
+# ===================== TEACHER DETAIL ROUTES =====================
+
+@api_router.post("/utenti/{user_id}/dettaglio-insegnante")
+async def create_teacher_detail(user_id: str, detail: TeacherDetailCreate, request: Request):
+    """Create/update teacher details (Admin only)"""
     await require_admin(request)
     
-    update_dict = {k: v for k, v in course_data.model_dump().items() if v is not None}
-    if "status" in update_dict:
-        update_dict["status"] = update_dict["status"].value
-    
-    if update_dict:
-        await db.courses.update_one({"course_id": course_id}, {"$set": update_dict})
-    
-    course = await db.courses.find_one({"course_id": course_id}, {"_id": 0})
-    if not course:
-        raise HTTPException(status_code=404, detail="Corso non trovato")
-    return Course(**course)
-
-@api_router.delete("/courses/{course_id}")
-async def delete_course(course_id: str, request: Request):
-    """Delete a course (admin only)"""
-    await require_admin(request)
-    
-    result = await db.courses.delete_one({"course_id": course_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Corso non trovato")
-    
-    return {"message": "Corso eliminato"}
-
-@api_router.post("/courses/{course_id}/teachers/{teacher_id}")
-async def assign_teacher(course_id: str, teacher_id: str, request: Request):
-    """Assign a teacher to a course"""
-    await require_admin(request)
-    
-    # Verify teacher exists and is a teacher
-    teacher = await db.users.find_one({"user_id": teacher_id, "role": "insegnante"}, {"_id": 0})
-    if not teacher:
+    # Verify user exists and is a teacher
+    user = await db.utenti.find_one({"id": user_id, "ruolo": UserRole.TEACHER.value})
+    if not user:
         raise HTTPException(status_code=404, detail="Insegnante non trovato")
     
-    await db.courses.update_one(
-        {"course_id": course_id},
-        {"$addToSet": {"teacher_ids": teacher_id}}
-    )
+    # Upsert detail
+    detail_data = {
+        "utente_id": user_id,
+        "specializzazione": detail.specializzazione,
+        "compenso_orario": detail.compenso_orario,
+        "note": detail.note
+    }
     
-    course = await db.courses.find_one({"course_id": course_id}, {"_id": 0})
-    return Course(**course)
-
-@api_router.delete("/courses/{course_id}/teachers/{teacher_id}")
-async def remove_teacher(course_id: str, teacher_id: str, request: Request):
-    """Remove a teacher from a course"""
-    await require_admin(request)
-    
-    await db.courses.update_one(
-        {"course_id": course_id},
-        {"$pull": {"teacher_ids": teacher_id}}
-    )
-    
-    course = await db.courses.find_one({"course_id": course_id}, {"_id": 0})
-    return Course(**course)
-
-@api_router.post("/courses/{course_id}/students/{student_id}")
-async def enroll_student(course_id: str, student_id: str, request: Request):
-    """Enroll a student in a course"""
-    await require_admin(request)
-    
-    # Verify student exists
-    student = await db.users.find_one({"user_id": student_id, "role": "studente"}, {"_id": 0})
-    if not student:
-        raise HTTPException(status_code=404, detail="Studente non trovato")
-    
-    await db.courses.update_one(
-        {"course_id": course_id},
-        {"$addToSet": {"student_ids": student_id}}
-    )
-    
-    course = await db.courses.find_one({"course_id": course_id}, {"_id": 0})
-    return Course(**course)
-
-@api_router.delete("/courses/{course_id}/students/{student_id}")
-async def remove_student(course_id: str, student_id: str, request: Request):
-    """Remove a student from a course"""
-    await require_admin(request)
-    
-    await db.courses.update_one(
-        {"course_id": course_id},
-        {"$pull": {"student_ids": student_id}}
-    )
-    
-    course = await db.courses.find_one({"course_id": course_id}, {"_id": 0})
-    return Course(**course)
-
-# ===================== LESSON ROUTES =====================
-
-@api_router.get("/lessons", response_model=List[Lesson])
-async def get_lessons(
-    request: Request,
-    course_id: Optional[str] = None,
-    teacher_id: Optional[str] = None,
-    student_id: Optional[str] = None,
-    status: Optional[str] = None,
-    from_date: Optional[str] = None,
-    to_date: Optional[str] = None
-):
-    """Get all lessons with optional filters"""
-    await require_auth(request)
-    
-    query = {}
-    if course_id:
-        query["course_id"] = course_id
-    if teacher_id:
-        query["teacher_id"] = teacher_id
-    if student_id:
-        query["student_id"] = student_id
-    if status:
-        query["status"] = status
-    if from_date:
-        query["date_time"] = {"$gte": datetime.fromisoformat(from_date)}
-    if to_date:
-        if "date_time" in query:
-            query["date_time"]["$lte"] = datetime.fromisoformat(to_date)
-        else:
-            query["date_time"] = {"$lte": datetime.fromisoformat(to_date)}
-    
-    lessons = await db.lessons.find(query, {"_id": 0}).sort("date_time", 1).to_list(1000)
-    return [Lesson(**l) for l in lessons]
-
-@api_router.get("/lessons/{lesson_id}", response_model=Lesson)
-async def get_lesson(lesson_id: str, request: Request):
-    """Get a specific lesson"""
-    await require_auth(request)
-    
-    lesson = await db.lessons.find_one({"lesson_id": lesson_id}, {"_id": 0})
-    if not lesson:
-        raise HTTPException(status_code=404, detail="Lezione non trovata")
-    return Lesson(**lesson)
-
-@api_router.post("/lessons", response_model=Lesson)
-async def create_lesson(lesson_data: LessonCreate, request: Request):
-    """Create a new lesson (admin only)"""
-    await require_admin(request)
-    
-    lesson = Lesson(**lesson_data.model_dump())
-    await db.lessons.insert_one(lesson.model_dump())
-    
-    return lesson
-
-@api_router.put("/lessons/{lesson_id}", response_model=Lesson)
-async def update_lesson(lesson_id: str, lesson_data: LessonUpdate, request: Request):
-    """Update a lesson"""
-    current_user = await require_auth(request)
-    
-    # Get existing lesson
-    existing = await db.lessons.find_one({"lesson_id": lesson_id}, {"_id": 0})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Lezione non trovata")
-    
-    # Only admin or assigned teacher can update
-    if current_user.role != UserRole.ADMIN and current_user.user_id != existing["teacher_id"]:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    update_dict = {k: v for k, v in lesson_data.model_dump().items() if v is not None}
-    if "status" in update_dict:
-        update_dict["status"] = update_dict["status"].value
-    
-    if update_dict:
-        await db.lessons.update_one({"lesson_id": lesson_id}, {"$set": update_dict})
-    
-    lesson = await db.lessons.find_one({"lesson_id": lesson_id}, {"_id": 0})
-    return Lesson(**lesson)
-
-@api_router.delete("/lessons/{lesson_id}")
-async def delete_lesson(lesson_id: str, request: Request):
-    """Delete a lesson (admin only)"""
-    await require_admin(request)
-    
-    result = await db.lessons.delete_one({"lesson_id": lesson_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Lezione non trovata")
-    
-    return {"message": "Lezione eliminata"}
-
-# ===================== PAYMENT ROUTES =====================
-
-@api_router.get("/payments", response_model=List[Payment])
-async def get_payments(
-    request: Request,
-    user_id: Optional[str] = None,
-    payment_type: Optional[str] = None,
-    status: Optional[str] = None
-):
-    """Get all payments with optional filters"""
-    current_user = await require_auth(request)
-    
-    query = {}
-    
-    # Non-admin users can only see their own payments
-    if current_user.role != UserRole.ADMIN:
-        query["user_id"] = current_user.user_id
-        query["visible_to_user"] = True
+    existing = await db.insegnanti_dettaglio.find_one({"utente_id": user_id})
+    if existing:
+        await db.insegnanti_dettaglio.update_one({"utente_id": user_id}, {"$set": detail_data})
     else:
-        if user_id:
-            query["user_id"] = user_id
+        detail_data["id"] = str(uuid.uuid4())
+        await db.insegnanti_dettaglio.insert_one(detail_data)
     
-    if payment_type:
-        query["payment_type"] = payment_type
-    if status:
-        query["status"] = status
-    
-    payments = await db.payments.find(query, {"_id": 0}).sort("due_date", 1).to_list(1000)
-    return [Payment(**p) for p in payments]
+    return await db.insegnanti_dettaglio.find_one({"utente_id": user_id}, {"_id": 0})
 
-@api_router.get("/payments/{payment_id}", response_model=Payment)
-async def get_payment(payment_id: str, request: Request):
-    """Get a specific payment"""
-    current_user = await require_auth(request)
-    
-    payment = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
-    if not payment:
-        raise HTTPException(status_code=404, detail="Pagamento non trovato")
-    
-    # Non-admin users can only see their own payments
-    if current_user.role != UserRole.ADMIN and payment["user_id"] != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    return Payment(**payment)
+# ===================== ADMIN PIN MANAGEMENT =====================
 
-@api_router.post("/payments", response_model=Payment)
-async def create_payment(payment_data: PaymentCreate, request: Request):
-    """Create a new payment (admin only)"""
-    await require_admin(request)
+@api_router.put("/admin/pin/{user_id}")
+async def update_admin_pin(user_id: str, request: Request):
+    """Update admin PIN (Admin only)"""
+    current_admin = await require_admin(request)
     
-    payment = Payment(**payment_data.model_dump())
-    await db.payments.insert_one(payment.model_dump())
+    body = await request.json()
+    new_pin = body.get("pin")
     
-    return payment
-
-@api_router.put("/payments/{payment_id}", response_model=Payment)
-async def update_payment(payment_id: str, payment_data: PaymentUpdate, request: Request):
-    """Update a payment (admin only)"""
-    await require_admin(request)
+    if not new_pin or len(new_pin) < 4:
+        raise HTTPException(status_code=400, detail="PIN deve essere di almeno 4 caratteri")
     
-    update_dict = {k: v for k, v in payment_data.model_dump().items() if v is not None}
-    if "status" in update_dict:
-        update_dict["status"] = update_dict["status"].value
+    # Verify target is an admin
+    user = await db.utenti.find_one({"id": user_id, "ruolo": UserRole.ADMIN.value})
+    if not user:
+        raise HTTPException(status_code=404, detail="Amministratore non trovato")
     
-    if update_dict:
-        await db.payments.update_one({"payment_id": payment_id}, {"$set": update_dict})
+    await db.accesso_amministrazione.update_one(
+        {"utente_id": user_id},
+        {"$set": {"pin_hash": hash_password(new_pin), "pin_attivo": True}},
+        upsert=True
+    )
     
-    payment = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
-    if not payment:
-        raise HTTPException(status_code=404, detail="Pagamento non trovato")
-    return Payment(**payment)
-
-@api_router.delete("/payments/{payment_id}")
-async def delete_payment(payment_id: str, request: Request):
-    """Delete a payment (admin only)"""
-    await require_admin(request)
-    
-    result = await db.payments.delete_one({"payment_id": payment_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Pagamento non trovato")
-    
-    return {"message": "Pagamento eliminato"}
-
-# ===================== NOTIFICATION ROUTES =====================
-
-@api_router.get("/notifications", response_model=List[Notification])
-async def get_notifications(
-    request: Request,
-    active_only: bool = True
-):
-    """Get all notifications"""
-    current_user = await require_auth(request)
-    
-    query = {}
-    if active_only:
-        query["is_active"] = True
-    
-    # Filter by recipient
-    if current_user.role != UserRole.ADMIN:
-        query["$or"] = [
-            {"recipient_ids": {"$size": 0}},  # All users
-            {"recipient_ids": current_user.user_id}
-        ]
-    
-    notifications = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
-    return [Notification(**n) for n in notifications]
-
-@api_router.post("/notifications", response_model=Notification)
-async def create_notification(notif_data: NotificationCreate, request: Request):
-    """Create a new notification (admin only)"""
-    await require_admin(request)
-    
-    notification = Notification(**notif_data.model_dump())
-    await db.notifications.insert_one(notification.model_dump())
-    
-    return notification
-
-@api_router.put("/notifications/{notification_id}", response_model=Notification)
-async def update_notification(notification_id: str, notif_data: NotificationUpdate, request: Request):
-    """Update a notification (admin only)"""
-    await require_admin(request)
-    
-    update_dict = {k: v for k, v in notif_data.model_dump().items() if v is not None}
-    
-    if update_dict:
-        await db.notifications.update_one({"notification_id": notification_id}, {"$set": update_dict})
-    
-    notification = await db.notifications.find_one({"notification_id": notification_id}, {"_id": 0})
-    if not notification:
-        raise HTTPException(status_code=404, detail="Notifica non trovata")
-    return Notification(**notification)
-
-@api_router.delete("/notifications/{notification_id}")
-async def delete_notification(notification_id: str, request: Request):
-    """Delete a notification (admin only)"""
-    await require_admin(request)
-    
-    result = await db.notifications.delete_one({"notification_id": notification_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Notifica non trovata")
-    
-    return {"message": "Notifica eliminata"}
-
-# ===================== DASHBOARD STATS =====================
-
-@api_router.get("/stats/admin")
-async def get_admin_stats(request: Request):
-    """Get admin dashboard statistics"""
-    await require_admin(request)
-    
-    # Count users by role
-    students = await db.users.count_documents({"role": "studente", "status": "attivo"})
-    teachers = await db.users.count_documents({"role": "insegnante", "status": "attivo"})
-    
-    # Count courses
-    active_courses = await db.courses.count_documents({"status": "attivo"})
-    
-    # Count lessons this week
-    now = datetime.now(timezone.utc)
-    week_start = now - timedelta(days=now.weekday())
-    week_end = week_start + timedelta(days=7)
-    lessons_this_week = await db.lessons.count_documents({
-        "date_time": {"$gte": week_start, "$lt": week_end}
-    })
-    
-    # Count pending payments
-    unpaid_student_fees = await db.payments.count_documents({
-        "payment_type": "quota_studente",
-        "status": {"$in": ["in_attesa", "scaduto"]}
-    })
-    unpaid_teacher_comp = await db.payments.count_documents({
-        "payment_type": "compenso_insegnante",
-        "status": {"$in": ["in_attesa", "scaduto"]}
-    })
-    
-    # Active notifications
-    active_notifications = await db.notifications.count_documents({"is_active": True})
-    
-    # Today's lessons
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = today_start + timedelta(days=1)
-    todays_lessons = await db.lessons.find({
-        "date_time": {"$gte": today_start, "$lt": today_end}
-    }, {"_id": 0}).to_list(100)
-    
-    return {
-        "studenti_attivi": students,
-        "insegnanti_attivi": teachers,
-        "corsi_attivi": active_courses,
-        "lezioni_settimana": lessons_this_week,
-        "pagamenti_studenti_non_pagati": unpaid_student_fees,
-        "compensi_insegnanti_non_pagati": unpaid_teacher_comp,
-        "notifiche_attive": active_notifications,
-        "lezioni_oggi": [Lesson(**l).model_dump() for l in todays_lessons]
-    }
-
-# ===================== SEED DATA =====================
-
-@api_router.post("/seed")
-async def seed_database(request: Request):
-    """Seed database with sample data"""
-    # Check if already seeded
-    existing = await db.users.count_documents({})
-    if existing > 5:
-        return {"message": "Database già popolato", "status": "skipped"}
-    
-    # Sample teachers with instruments
-    teachers = [
-        {"user_id": "teacher_001", "email": "mario.rossi@musici.it", "name": "Mario Rossi", "role": "insegnante", "instrument": "pianoforte", "status": "attivo", "phone": "+39 333 1234567", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "teacher_002", "email": "lucia.bianchi@musici.it", "name": "Lucia Bianchi", "role": "insegnante", "instrument": "violino", "status": "attivo", "phone": "+39 333 2345678", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "teacher_003", "email": "paolo.verdi@musici.it", "name": "Paolo Verdi", "role": "insegnante", "instrument": "chitarra", "status": "attivo", "phone": "+39 333 3456789", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "teacher_004", "email": "anna.neri@musici.it", "name": "Anna Neri", "role": "insegnante", "instrument": "canto", "status": "attivo", "phone": "+39 333 4567890", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "teacher_005", "email": "roberto.blu@musici.it", "name": "Roberto Blu", "role": "insegnante", "instrument": "percussioni", "status": "attivo", "phone": "+39 333 5678901", "picture": None, "created_at": datetime.now(timezone.utc)},
-    ]
-    
-    # Sample students with instruments
-    students = [
-        {"user_id": "student_001", "email": "giulia.ferrari@email.it", "name": "Giulia Ferrari", "role": "studente", "instrument": "pianoforte", "status": "attivo", "phone": "+39 340 1111111", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_002", "email": "marco.romano@email.it", "name": "Marco Romano", "role": "studente", "instrument": "pianoforte", "status": "attivo", "phone": "+39 340 2222222", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_003", "email": "sara.conti@email.it", "name": "Sara Conti", "role": "studente", "instrument": "violino", "status": "attivo", "phone": "+39 340 3333333", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_004", "email": "luca.esposito@email.it", "name": "Luca Esposito", "role": "studente", "instrument": "chitarra", "status": "attivo", "phone": "+39 340 4444444", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_005", "email": "anna.bruno@email.it", "name": "Anna Bruno", "role": "studente", "instrument": "canto", "status": "attivo", "phone": "+39 340 5555555", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_006", "email": "francesco.gallo@email.it", "name": "Francesco Gallo", "role": "studente", "instrument": "percussioni", "status": "attivo", "phone": "+39 340 6666666", "picture": None, "created_at": datetime.now(timezone.utc)},
-    ]
-    
-    # Sample courses
-    courses = [
-        {"course_id": "course_001", "name": "Pianoforte Base", "instrument": "Pianoforte", "description": "Corso introduttivo al pianoforte", "status": "attivo", "teacher_ids": ["teacher_001"], "student_ids": ["student_001", "student_002"], "created_at": datetime.now(timezone.utc)},
-        {"course_id": "course_002", "name": "Violino Intermedio", "instrument": "Violino", "description": "Corso intermedio di violino", "status": "attivo", "teacher_ids": ["teacher_002"], "student_ids": ["student_003", "student_004"], "created_at": datetime.now(timezone.utc)},
-        {"course_id": "course_003", "name": "Chitarra Classica", "instrument": "Chitarra", "description": "Corso di chitarra classica", "status": "attivo", "teacher_ids": ["teacher_003"], "student_ids": ["student_001", "student_003"], "created_at": datetime.now(timezone.utc)},
-        {"course_id": "course_004", "name": "Canto Lirico", "instrument": "Voce", "description": "Corso di canto lirico", "status": "inattivo", "teacher_ids": ["teacher_002"], "student_ids": [], "created_at": datetime.now(timezone.utc)},
-    ]
-    
-    # Sample lessons (spread across this week and next)
-    now = datetime.now(timezone.utc)
-    lessons = []
-    for i in range(10):
-        lesson_date = now + timedelta(days=i % 7, hours=9 + (i % 8))
-        lessons.append({
-            "lesson_id": f"lesson_{i+1:03d}",
-            "course_id": courses[i % 3]["course_id"],
-            "teacher_id": courses[i % 3]["teacher_ids"][0],
-            "student_id": courses[i % 3]["student_ids"][i % len(courses[i % 3]["student_ids"])] if courses[i % 3]["student_ids"] else "student_001",
-            "date_time": lesson_date,
-            "duration_minutes": 60,
-            "status": "programmata" if i > 2 else "completata",
-            "notes": "Lezione di prova" if i < 3 else None,
-            "created_at": datetime.now(timezone.utc)
-        })
-    
-    # Sample payments
-    payments = [
-        {"payment_id": "payment_001", "user_id": "student_001", "payment_type": "quota_studente", "amount": 150.0, "description": "Quota mensile Luglio 2025", "due_date": now + timedelta(days=5), "status": "in_attesa", "visible_to_user": True, "created_at": datetime.now(timezone.utc)},
-        {"payment_id": "payment_002", "user_id": "student_002", "payment_type": "quota_studente", "amount": 150.0, "description": "Quota mensile Luglio 2025", "due_date": now - timedelta(days=5), "status": "scaduto", "visible_to_user": True, "created_at": datetime.now(timezone.utc)},
-        {"payment_id": "payment_003", "user_id": "student_003", "payment_type": "quota_studente", "amount": 200.0, "description": "Quota mensile Luglio 2025 + materiali", "due_date": now + timedelta(days=10), "status": "in_attesa", "visible_to_user": True, "created_at": datetime.now(timezone.utc)},
-        {"payment_id": "payment_004", "user_id": "teacher_001", "payment_type": "compenso_insegnante", "amount": 500.0, "description": "Compenso Giugno 2025", "due_date": now - timedelta(days=2), "status": "pagato", "visible_to_user": True, "created_at": datetime.now(timezone.utc)},
-        {"payment_id": "payment_005", "user_id": "teacher_002", "payment_type": "compenso_insegnante", "amount": 600.0, "description": "Compenso Giugno 2025", "due_date": now + timedelta(days=3), "status": "in_attesa", "visible_to_user": True, "created_at": datetime.now(timezone.utc)},
-    ]
-    
-    # Sample notifications
-    notifications = [
-        {"notification_id": "notif_001", "title": "Benvenuti all'Accademia!", "message": "Benvenuti nella nuova app dell'Accademia de 'I Musici'. Qui potrete gestire le vostre lezioni e pagamenti.", "notification_type": "generale", "recipient_ids": [], "is_active": True, "created_at": datetime.now(timezone.utc)},
-        {"notification_id": "notif_002", "title": "Concerto di fine anno", "message": "Il concerto di fine anno si terrà il 20 Dicembre 2025. Tutti gli allievi sono invitati a partecipare!", "notification_type": "generale", "recipient_ids": [], "is_active": True, "created_at": datetime.now(timezone.utc)},
-        {"notification_id": "notif_003", "title": "Promemoria pagamento", "message": "Ricordiamo che la quota mensile è in scadenza.", "notification_type": "promemoria_pagamento", "recipient_ids": ["student_001", "student_002"], "is_active": True, "created_at": datetime.now(timezone.utc)},
-    ]
-    
-    # Insert all data
-    await db.users.insert_many(teachers + students)
-    await db.courses.insert_many(courses)
-    await db.lessons.insert_many(lessons)
-    await db.payments.insert_many(payments)
-    await db.notifications.insert_many(notifications)
-    
-    return {
-        "message": "Database popolato con successo",
-        "data": {
-            "insegnanti": len(teachers),
-            "studenti": len(students),
-            "corsi": len(courses),
-            "lezioni": len(lessons),
-            "pagamenti": len(payments),
-            "notifiche": len(notifications)
-        }
-    }
+    return {"message": "PIN aggiornato"}
 
 # ===================== ATTENDANCE ROUTES =====================
 
-@api_router.get("/attendance")
+@api_router.get("/presenze")
 async def get_attendance(
     request: Request,
-    student_id: Optional[str] = None,
-    teacher_id: Optional[str] = None,
-    instrument: Optional[str] = None,
+    allievo_id: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None
 ):
-    """Get attendance records with optional filters"""
+    """Get attendance records"""
     current_user = await require_auth(request)
     
     query = {}
     
     # Filter based on role
-    if current_user.role == UserRole.STUDENT:
-        query["student_id"] = current_user.user_id
-    elif current_user.role == UserRole.TEACHER:
-        query["teacher_id"] = current_user.user_id
-        if student_id:
-            query["student_id"] = student_id
+    if current_user["ruolo"] == UserRole.STUDENT.value:
+        query["allievo_id"] = current_user["id"]
+    elif current_user["ruolo"] == UserRole.TEACHER.value:
+        query["insegnante_id"] = current_user["id"]
+        if allievo_id:
+            query["allievo_id"] = allievo_id
     else:  # Admin
-        if student_id:
-            query["student_id"] = student_id
-        if teacher_id:
-            query["teacher_id"] = teacher_id
-    
-    if instrument:
-        query["instrument"] = instrument
+        if allievo_id:
+            query["allievo_id"] = allievo_id
     
     if from_date:
-        query["date"] = {"$gte": datetime.fromisoformat(from_date)}
+        query["data"] = {"$gte": datetime.fromisoformat(from_date)}
     if to_date:
-        if "date" in query:
-            query["date"]["$lte"] = datetime.fromisoformat(to_date)
+        if "data" in query:
+            query["data"]["$lte"] = datetime.fromisoformat(to_date)
         else:
-            query["date"] = {"$lte": datetime.fromisoformat(to_date)}
+            query["data"] = {"$lte": datetime.fromisoformat(to_date)}
     
-    records = await db.attendance.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    records = await db.presenze.find(query, {"_id": 0}).sort("data", -1).to_list(500)
     return records
 
-@api_router.post("/attendance")
+@api_router.post("/presenze")
 async def create_attendance(attendance_data: AttendanceCreate, request: Request):
-    """Create an attendance record (teacher or admin)"""
-    current_user = await require_auth(request)
+    """Create attendance record (Teacher or Admin)"""
+    current_user = await require_teacher_or_admin(request)
     
-    if current_user.role == UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    # Get teacher's instrument
-    teacher_instrument = current_user.instrument
-    if current_user.role == UserRole.ADMIN:
-        teacher_instrument = "admin"
-    
-    attendance_record = {
-        "attendance_id": f"att_{uuid.uuid4().hex[:12]}",
-        "lesson_id": attendance_data.lesson_id,
-        "student_id": attendance_data.student_id,
-        "teacher_id": current_user.user_id,
-        "instrument": teacher_instrument or "non_specificato",
-        "date": datetime.fromisoformat(attendance_data.date),
-        "status": attendance_data.status.value,
-        "notes": attendance_data.notes,
-        "created_at": datetime.now(timezone.utc)
+    record = {
+        "id": str(uuid.uuid4()),
+        "allievo_id": attendance_data.allievo_id,
+        "insegnante_id": current_user["id"],
+        "data": datetime.fromisoformat(attendance_data.data),
+        "stato": attendance_data.stato.value,
+        "note": attendance_data.note,
+        "data_creazione": datetime.now(timezone.utc)
     }
     
-    await db.attendance.insert_one(attendance_record)
-    attendance_record.pop("_id", None)
-    return attendance_record
+    await db.presenze.insert_one(record)
+    record.pop("_id", None)
+    return record
 
-@api_router.put("/attendance/{attendance_id}")
-async def update_attendance(attendance_id: str, attendance_data: AttendanceUpdate, request: Request):
-    """Update an attendance record"""
-    current_user = await require_auth(request)
+@api_router.put("/presenze/{attendance_id}")
+async def update_attendance(attendance_id: str, request: Request):
+    """Update attendance record"""
+    current_user = await require_teacher_or_admin(request)
     
-    existing = await db.attendance.find_one({"attendance_id": attendance_id}, {"_id": 0})
+    body = await request.json()
+    
+    existing = await db.presenze.find_one({"id": attendance_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Presenza non trovata")
     
     # Only admin or the teacher who created it can update
-    if current_user.role != UserRole.ADMIN and current_user.user_id != existing["teacher_id"]:
+    if current_user["ruolo"] != UserRole.ADMIN.value and current_user["id"] != existing["insegnante_id"]:
         raise HTTPException(status_code=403, detail="Non autorizzato")
     
-    update_dict = {k: v for k, v in attendance_data.model_dump().items() if v is not None}
-    if "status" in update_dict:
-        update_dict["status"] = update_dict["status"].value
+    update_dict = {}
+    if "stato" in body:
+        update_dict["stato"] = body["stato"]
+    if "note" in body:
+        update_dict["note"] = body["note"]
     
     if update_dict:
-        await db.attendance.update_one({"attendance_id": attendance_id}, {"$set": update_dict})
+        await db.presenze.update_one({"id": attendance_id}, {"$set": update_dict})
     
-    record = await db.attendance.find_one({"attendance_id": attendance_id}, {"_id": 0})
-    return record
+    return await db.presenze.find_one({"id": attendance_id}, {"_id": 0})
 
-@api_router.delete("/attendance/{attendance_id}")
+@api_router.delete("/presenze/{attendance_id}")
 async def delete_attendance(attendance_id: str, request: Request):
-    """Delete an attendance record"""
-    current_user = await require_auth(request)
+    """Delete attendance record"""
+    await require_teacher_or_admin(request)
     
-    if current_user.role == UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    result = await db.attendance.delete_one({"attendance_id": attendance_id})
+    result = await db.presenze.delete_one({"id": attendance_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Presenza non trovata")
     
@@ -1128,135 +900,496 @@ async def delete_attendance(attendance_id: str, request: Request):
 
 # ===================== ASSIGNMENT ROUTES =====================
 
-@api_router.get("/assignments")
+@api_router.get("/compiti")
 async def get_assignments(
     request: Request,
-    student_id: Optional[str] = None,
-    teacher_id: Optional[str] = None,
-    completed: Optional[bool] = None
+    allievo_id: Optional[str] = None,
+    completato: Optional[bool] = None
 ):
-    """Get assignments with optional filters"""
+    """Get assignments"""
     current_user = await require_auth(request)
     
     query = {}
     
     # Filter based on role
-    if current_user.role == UserRole.STUDENT:
-        query["student_id"] = current_user.user_id
-    elif current_user.role == UserRole.TEACHER:
-        query["teacher_id"] = current_user.user_id
-        if student_id:
-            query["student_id"] = student_id
+    if current_user["ruolo"] == UserRole.STUDENT.value:
+        query["allievo_id"] = current_user["id"]
+    elif current_user["ruolo"] == UserRole.TEACHER.value:
+        query["insegnante_id"] = current_user["id"]
+        if allievo_id:
+            query["allievo_id"] = allievo_id
     else:  # Admin
-        if student_id:
-            query["student_id"] = student_id
-        if teacher_id:
-            query["teacher_id"] = teacher_id
+        if allievo_id:
+            query["allievo_id"] = allievo_id
     
-    if completed is not None:
-        query["completed"] = completed
+    if completato is not None:
+        query["completato"] = completato
     
-    assignments = await db.assignments.find(query, {"_id": 0}).sort("due_date", 1).to_list(500)
+    assignments = await db.compiti.find(query, {"_id": 0}).sort("data_scadenza", 1).to_list(500)
     return assignments
 
-@api_router.post("/assignments")
+@api_router.post("/compiti")
 async def create_assignment(assignment_data: AssignmentCreate, request: Request):
-    """Create an assignment (teacher or admin)"""
-    current_user = await require_auth(request)
-    
-    if current_user.role == UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    # Get teacher's instrument
-    teacher_instrument = current_user.instrument
-    if current_user.role == UserRole.ADMIN:
-        teacher_instrument = "admin"
+    """Create assignment (Teacher or Admin)"""
+    current_user = await require_teacher_or_admin(request)
     
     assignment = {
-        "assignment_id": f"assign_{uuid.uuid4().hex[:12]}",
-        "teacher_id": current_user.user_id,
-        "student_id": assignment_data.student_id,
-        "instrument": teacher_instrument or "non_specificato",
-        "title": assignment_data.title,
-        "description": assignment_data.description,
-        "due_date": datetime.fromisoformat(assignment_data.due_date),
-        "completed": False,
-        "created_at": datetime.now(timezone.utc)
+        "id": str(uuid.uuid4()),
+        "insegnante_id": current_user["id"],
+        "allievo_id": assignment_data.allievo_id,
+        "titolo": assignment_data.titolo,
+        "descrizione": assignment_data.descrizione,
+        "data_scadenza": datetime.fromisoformat(assignment_data.data_scadenza),
+        "completato": False,
+        "data_creazione": datetime.now(timezone.utc)
     }
     
-    await db.assignments.insert_one(assignment)
+    await db.compiti.insert_one(assignment)
     assignment.pop("_id", None)
     return assignment
 
-@api_router.put("/assignments/{assignment_id}")
-async def update_assignment(assignment_id: str, assignment_data: AssignmentUpdate, request: Request):
-    """Update an assignment"""
+@api_router.put("/compiti/{assignment_id}")
+async def update_assignment(assignment_id: str, request: Request):
+    """Update assignment"""
     current_user = await require_auth(request)
     
-    existing = await db.assignments.find_one({"assignment_id": assignment_id}, {"_id": 0})
+    body = await request.json()
+    
+    existing = await db.compiti.find_one({"id": assignment_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Compito non trovato")
     
+    update_dict = {}
+    
     # Students can only mark as completed
-    if current_user.role == UserRole.STUDENT:
-        if current_user.user_id != existing["student_id"]:
+    if current_user["ruolo"] == UserRole.STUDENT.value:
+        if current_user["id"] != existing["allievo_id"]:
             raise HTTPException(status_code=403, detail="Non autorizzato")
-        # Students can only update completed status
-        if assignment_data.completed is not None:
-            await db.assignments.update_one(
-                {"assignment_id": assignment_id}, 
-                {"$set": {"completed": assignment_data.completed}}
-            )
+        if "completato" in body:
+            update_dict["completato"] = body["completato"]
     else:
         # Teachers/admins can update everything
-        update_dict = {k: v for k, v in assignment_data.model_dump().items() if v is not None}
-        if "due_date" in update_dict:
-            update_dict["due_date"] = datetime.fromisoformat(update_dict["due_date"])
-        
-        if update_dict:
-            await db.assignments.update_one({"assignment_id": assignment_id}, {"$set": update_dict})
+        if "titolo" in body:
+            update_dict["titolo"] = body["titolo"]
+        if "descrizione" in body:
+            update_dict["descrizione"] = body["descrizione"]
+        if "data_scadenza" in body:
+            update_dict["data_scadenza"] = datetime.fromisoformat(body["data_scadenza"])
+        if "completato" in body:
+            update_dict["completato"] = body["completato"]
     
-    record = await db.assignments.find_one({"assignment_id": assignment_id}, {"_id": 0})
-    return record
+    if update_dict:
+        await db.compiti.update_one({"id": assignment_id}, {"$set": update_dict})
+    
+    return await db.compiti.find_one({"id": assignment_id}, {"_id": 0})
 
-@api_router.delete("/assignments/{assignment_id}")
+@api_router.delete("/compiti/{assignment_id}")
 async def delete_assignment(assignment_id: str, request: Request):
-    """Delete an assignment"""
-    current_user = await require_auth(request)
+    """Delete assignment"""
+    await require_teacher_or_admin(request)
     
-    if current_user.role == UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-    
-    result = await db.assignments.delete_one({"assignment_id": assignment_id})
+    result = await db.compiti.delete_one({"id": assignment_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Compito non trovato")
     
     return {"message": "Compito eliminato"}
 
-# ===================== TEACHER STUDENTS =====================
+# ===================== PAYMENT ROUTES =====================
 
-@api_router.get("/teacher/students")
-async def get_teacher_students(request: Request):
-    """Get students that share the same instrument as the teacher"""
+@api_router.get("/pagamenti")
+async def get_payments(
+    request: Request,
+    utente_id: Optional[str] = None,
+    tipo: Optional[str] = None,
+    stato: Optional[str] = None
+):
+    """Get payments"""
     current_user = await require_auth(request)
     
-    if current_user.role == UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
+    query = {}
     
-    query = {"role": "studente", "status": "attivo"}
+    # Non-admin users can only see their own payments
+    if current_user["ruolo"] != UserRole.ADMIN.value:
+        query["utente_id"] = current_user["id"]
+        query["visibile_utente"] = True
+    else:
+        if utente_id:
+            query["utente_id"] = utente_id
     
-    # If teacher, filter by instrument
-    if current_user.role == UserRole.TEACHER and current_user.instrument:
-        query["instrument"] = current_user.instrument
+    if tipo:
+        query["tipo"] = tipo
+    if stato:
+        query["stato"] = stato
     
-    students = await db.users.find(query, {"_id": 0}).to_list(500)
+    payments = await db.pagamenti.find(query, {"_id": 0}).sort("data_scadenza", 1).to_list(1000)
+    return payments
+
+@api_router.post("/pagamenti")
+async def create_payment(payment_data: PaymentCreate, request: Request):
+    """Create payment (Admin only)"""
+    await require_admin(request)
+    
+    payment = {
+        "id": str(uuid.uuid4()),
+        "utente_id": payment_data.utente_id,
+        "tipo": payment_data.tipo.value,
+        "importo": payment_data.importo,
+        "descrizione": payment_data.descrizione,
+        "data_scadenza": datetime.fromisoformat(payment_data.data_scadenza),
+        "stato": PaymentStatus.PENDING.value,
+        "visibile_utente": True,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    
+    await db.pagamenti.insert_one(payment)
+    payment.pop("_id", None)
+    return payment
+
+@api_router.put("/pagamenti/{payment_id}")
+async def update_payment(payment_id: str, request: Request):
+    """Update payment (Admin only)"""
+    await require_admin(request)
+    
+    body = await request.json()
+    
+    update_dict = {}
+    if "importo" in body:
+        update_dict["importo"] = body["importo"]
+    if "descrizione" in body:
+        update_dict["descrizione"] = body["descrizione"]
+    if "data_scadenza" in body:
+        update_dict["data_scadenza"] = datetime.fromisoformat(body["data_scadenza"])
+    if "stato" in body:
+        update_dict["stato"] = body["stato"]
+    if "visibile_utente" in body:
+        update_dict["visibile_utente"] = body["visibile_utente"]
+    
+    if update_dict:
+        await db.pagamenti.update_one({"id": payment_id}, {"$set": update_dict})
+    
+    payment = await db.pagamenti.find_one({"id": payment_id}, {"_id": 0})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Pagamento non trovato")
+    return payment
+
+@api_router.delete("/pagamenti/{payment_id}")
+async def delete_payment(payment_id: str, request: Request):
+    """Delete payment (Admin only)"""
+    await require_admin(request)
+    
+    result = await db.pagamenti.delete_one({"id": payment_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Pagamento non trovato")
+    
+    return {"message": "Pagamento eliminato"}
+
+# ===================== NOTIFICATION ROUTES =====================
+
+@api_router.get("/notifiche")
+async def get_notifications(
+    request: Request,
+    attivo_only: bool = True
+):
+    """Get notifications"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    if attivo_only:
+        query["attivo"] = True
+    
+    # Filter by recipient
+    if current_user["ruolo"] != UserRole.ADMIN.value:
+        query["$or"] = [
+            {"destinatari_ids": {"$size": 0}},  # All users
+            {"destinatari_ids": current_user["id"]}
+        ]
+    
+    notifications = await db.notifiche.find(query, {"_id": 0}).sort("data_creazione", -1).to_list(100)
+    return notifications
+
+@api_router.post("/notifiche")
+async def create_notification(notif_data: NotificationCreate, request: Request):
+    """Create notification (Admin only)"""
+    await require_admin(request)
+    
+    notification = {
+        "id": str(uuid.uuid4()),
+        "titolo": notif_data.titolo,
+        "messaggio": notif_data.messaggio,
+        "tipo": notif_data.tipo,
+        "destinatari_ids": notif_data.destinatari_ids,
+        "attivo": True,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    
+    await db.notifiche.insert_one(notification)
+    notification.pop("_id", None)
+    return notification
+
+@api_router.put("/notifiche/{notification_id}")
+async def update_notification(notification_id: str, request: Request):
+    """Update notification (Admin only)"""
+    await require_admin(request)
+    
+    body = await request.json()
+    
+    update_dict = {}
+    if "titolo" in body:
+        update_dict["titolo"] = body["titolo"]
+    if "messaggio" in body:
+        update_dict["messaggio"] = body["messaggio"]
+    if "attivo" in body:
+        update_dict["attivo"] = body["attivo"]
+    
+    if update_dict:
+        await db.notifiche.update_one({"id": notification_id}, {"$set": update_dict})
+    
+    notification = await db.notifiche.find_one({"id": notification_id}, {"_id": 0})
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notifica non trovata")
+    return notification
+
+@api_router.delete("/notifiche/{notification_id}")
+async def delete_notification(notification_id: str, request: Request):
+    """Delete notification (Admin only)"""
+    await require_admin(request)
+    
+    result = await db.notifiche.delete_one({"id": notification_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Notifica non trovata")
+    
+    return {"message": "Notifica eliminata"}
+
+# ===================== TEACHER STUDENTS =====================
+
+@api_router.get("/insegnante/allievi")
+async def get_teacher_students(request: Request):
+    """Get students for teacher based on specialization"""
+    current_user = await require_teacher_or_admin(request)
+    
+    query = {"ruolo": UserRole.STUDENT.value, "attivo": True}
+    
+    # If teacher, filter by specialization
+    if current_user["ruolo"] == UserRole.TEACHER.value:
+        teacher_detail = await db.insegnanti_dettaglio.find_one({"utente_id": current_user["id"]}, {"_id": 0})
+        if teacher_detail and teacher_detail.get("specializzazione"):
+            # Get students with same course
+            student_ids = []
+            student_details = await db.allievi_dettaglio.find({
+                "corso_principale": teacher_detail["specializzazione"]
+            }, {"_id": 0}).to_list(500)
+            student_ids = [d["utente_id"] for d in student_details]
+            if student_ids:
+                query["id"] = {"$in": student_ids}
+            else:
+                return []  # No students match
+    
+    students = await db.utenti.find(query, {"_id": 0, "password_hash": 0}).to_list(500)
+    
+    # Add details
+    for student in students:
+        detail = await db.allievi_dettaglio.find_one({"utente_id": student["id"]}, {"_id": 0})
+        if detail:
+            student["dettaglio"] = detail
+    
     return students
+
+# ===================== STATS =====================
+
+@api_router.get("/stats/admin")
+async def get_admin_stats(request: Request):
+    """Get admin dashboard statistics"""
+    await require_admin(request)
+    
+    # Count users by role
+    allievi = await db.utenti.count_documents({"ruolo": UserRole.STUDENT.value, "attivo": True})
+    insegnanti = await db.utenti.count_documents({"ruolo": UserRole.TEACHER.value, "attivo": True})
+    
+    # Count pending payments
+    pagamenti_non_pagati = await db.pagamenti.count_documents({
+        "stato": {"$in": [PaymentStatus.PENDING.value, PaymentStatus.OVERDUE.value]}
+    })
+    
+    # Active notifications
+    notifiche_attive = await db.notifiche.count_documents({"attivo": True})
+    
+    # Recent attendance
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    presenze_oggi = await db.presenze.count_documents({"data": {"$gte": today}})
+    
+    return {
+        "allievi_attivi": allievi,
+        "insegnanti_attivi": insegnanti,
+        "pagamenti_non_pagati": pagamenti_non_pagati,
+        "notifiche_attive": notifiche_attive,
+        "presenze_oggi": presenze_oggi
+    }
+
+# ===================== SEED DATA =====================
+
+@api_router.post("/seed")
+async def seed_database():
+    """Seed database with sample data"""
+    # Check if already seeded
+    existing = await db.utenti.count_documents({})
+    if existing > 3:
+        return {"message": "Database già popolato", "status": "skipped"}
+    
+    # Create default admin
+    admin_id = str(uuid.uuid4())
+    admin = {
+        "id": admin_id,
+        "ruolo": UserRole.ADMIN.value,
+        "nome": "Admin",
+        "cognome": "Sistema",
+        "email": "admin@musici.it",
+        "password_hash": hash_password("admin123"),  # Will not be used for login
+        "attivo": True,
+        "data_creazione": datetime.now(timezone.utc),
+        "ultimo_accesso": None,
+        "note_admin": "Account amministratore principale"
+    }
+    await db.utenti.insert_one(admin)
+    
+    # Create admin access with PIN
+    admin_access = {
+        "id": str(uuid.uuid4()),
+        "utente_id": admin_id,
+        "pin_hash": hash_password("1234"),  # Default PIN
+        "pin_attivo": True,
+        "google_id": None,
+        "ultimo_accesso": None
+    }
+    await db.accesso_amministrazione.insert_one(admin_access)
+    
+    # Create sample teachers
+    teachers = [
+        {"nome": "Mario", "cognome": "Rossi", "email": "mario.rossi@musici.it", "spec": "pianoforte", "compenso": 30.0},
+        {"nome": "Lucia", "cognome": "Bianchi", "email": "lucia.bianchi@musici.it", "spec": "violino", "compenso": 35.0},
+        {"nome": "Paolo", "cognome": "Verdi", "email": "paolo.verdi@musici.it", "spec": "chitarra", "compenso": 28.0},
+        {"nome": "Anna", "cognome": "Neri", "email": "anna.neri@musici.it", "spec": "canto", "compenso": 32.0},
+    ]
+    
+    teacher_ids = []
+    for t in teachers:
+        teacher_id = str(uuid.uuid4())
+        teacher_ids.append(teacher_id)
+        teacher = {
+            "id": teacher_id,
+            "ruolo": UserRole.TEACHER.value,
+            "nome": t["nome"],
+            "cognome": t["cognome"],
+            "email": t["email"],
+            "password_hash": hash_password("teacher123"),
+            "attivo": True,
+            "data_creazione": datetime.now(timezone.utc),
+            "ultimo_accesso": None,
+            "note_admin": None
+        }
+        await db.utenti.insert_one(teacher)
+        
+        # Teacher detail
+        detail = {
+            "id": str(uuid.uuid4()),
+            "utente_id": teacher_id,
+            "specializzazione": t["spec"],
+            "compenso_orario": t["compenso"],
+            "note": None
+        }
+        await db.insegnanti_dettaglio.insert_one(detail)
+    
+    # Create sample students
+    students = [
+        {"nome": "Giulia", "cognome": "Ferrari", "email": "giulia.ferrari@email.it", "corso": "pianoforte", "tel": "+39 340 1111111"},
+        {"nome": "Marco", "cognome": "Romano", "email": "marco.romano@email.it", "corso": "pianoforte", "tel": "+39 340 2222222"},
+        {"nome": "Sara", "cognome": "Conti", "email": "sara.conti@email.it", "corso": "violino", "tel": "+39 340 3333333"},
+        {"nome": "Luca", "cognome": "Esposito", "email": "luca.esposito@email.it", "corso": "chitarra", "tel": "+39 340 4444444"},
+        {"nome": "Anna", "cognome": "Bruno", "email": "anna.bruno@email.it", "corso": "canto", "tel": "+39 340 5555555"},
+    ]
+    
+    student_ids = []
+    for s in students:
+        student_id = str(uuid.uuid4())
+        student_ids.append(student_id)
+        student = {
+            "id": student_id,
+            "ruolo": UserRole.STUDENT.value,
+            "nome": s["nome"],
+            "cognome": s["cognome"],
+            "email": s["email"],
+            "password_hash": hash_password("student123"),
+            "attivo": True,
+            "data_creazione": datetime.now(timezone.utc),
+            "ultimo_accesso": None,
+            "note_admin": None
+        }
+        await db.utenti.insert_one(student)
+        
+        # Student detail
+        detail = {
+            "id": str(uuid.uuid4()),
+            "utente_id": student_id,
+            "telefono": s["tel"],
+            "data_nascita": None,
+            "corso_principale": s["corso"],
+            "note": None
+        }
+        await db.allievi_dettaglio.insert_one(detail)
+    
+    # Create sample payments
+    now = datetime.now(timezone.utc)
+    for i, sid in enumerate(student_ids[:3]):
+        payment = {
+            "id": str(uuid.uuid4()),
+            "utente_id": sid,
+            "tipo": PaymentType.STUDENT_FEE.value,
+            "importo": 150.0,
+            "descrizione": f"Quota mensile Luglio 2025",
+            "data_scadenza": now + timedelta(days=10 - i*5),
+            "stato": PaymentStatus.PENDING.value if i < 2 else PaymentStatus.OVERDUE.value,
+            "visibile_utente": True,
+            "data_creazione": now
+        }
+        await db.pagamenti.insert_one(payment)
+    
+    # Create sample notifications
+    notifications = [
+        {"titolo": "Benvenuti!", "messaggio": "Benvenuti nella nuova app dell'Accademia de 'I Musici'."},
+        {"titolo": "Concerto di fine anno", "messaggio": "Il concerto si terrà il 20 Dicembre 2025."},
+    ]
+    for n in notifications:
+        notif = {
+            "id": str(uuid.uuid4()),
+            "titolo": n["titolo"],
+            "messaggio": n["messaggio"],
+            "tipo": "generale",
+            "destinatari_ids": [],
+            "attivo": True,
+            "data_creazione": now
+        }
+        await db.notifiche.insert_one(notif)
+    
+    return {
+        "message": "Database popolato con successo",
+        "data": {
+            "admin": 1,
+            "insegnanti": len(teachers),
+            "allievi": len(students),
+            "pagamenti": 3,
+            "notifiche": 2
+        },
+        "credenziali_test": {
+            "admin": {"email": "admin@musici.it", "pin": "1234", "note": "Dopo PIN usare Google con stessa email"},
+            "insegnante": {"email": "mario.rossi@musici.it", "password": "teacher123"},
+            "allievo": {"email": "giulia.ferrari@email.it", "password": "student123"}
+        }
+    }
 
 # ===================== MAIN ROUTES =====================
 
 @api_router.get("/")
 async def root():
-    return {"message": "API Accademia de 'I Musici'", "version": "1.0"}
+    return {"message": "API Accademia de 'I Musici'", "version": "2.0"}
 
 @api_router.get("/health")
 async def health_check():
