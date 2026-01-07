@@ -58,8 +58,8 @@ export default function DashboardScreen() {
         return 'Amministratore';
       case 'insegnante':
         return 'Insegnante';
-      case 'studente':
-        return 'Studente';
+      case 'allievo':
+        return 'Allievo';
       default:
         return 'Utente';
     }
