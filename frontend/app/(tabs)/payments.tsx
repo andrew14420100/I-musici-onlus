@@ -209,13 +209,13 @@ export default function PaymentsScreen() {
         <View style={[styles.summaryCard, { backgroundColor: '#FEF3C7' }]}>
           <Text style={styles.summaryLabel}>In Attesa</Text>
           <Text style={[styles.summaryValue, { color: '#F59E0B' }]}>
-            \u20ac{totalPending.toFixed(2)}
+            €{totalPending.toFixed(2)}
           </Text>
         </View>
         <View style={[styles.summaryCard, { backgroundColor: '#D1FAE5' }]}>
           <Text style={styles.summaryLabel}>Pagato</Text>
           <Text style={[styles.summaryValue, { color: '#10B981' }]}>
-            \u20ac{totalPaid.toFixed(2)}
+            €{totalPaid.toFixed(2)}
           </Text>
         </View>
       </View>
