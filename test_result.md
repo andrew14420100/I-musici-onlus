@@ -180,11 +180,14 @@ backend:
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Notification system with types and recipient filtering"
+      - working: true
+        agent: "testing"
+        comment: "All notification endpoints tested successfully: GET /notifications (with active_only filter and proper recipient filtering), POST /notifications, PUT /notifications/{id}, DELETE /notifications/{id}. Proper authorization implemented - non-admin users see only notifications intended for them or all users."
 
   - task: "Admin Stats API"
     implemented: true
