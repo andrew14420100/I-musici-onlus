@@ -5,23 +5,26 @@ import {
   StyleSheet, 
   TouchableOpacity, 
   ActivityIndicator,
-  Image,
   ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/contexts/AuthContext';
 import { router } from 'expo-router';
-import { UserRole } from '../src/types';
 
 export default function LandingPage() {
-  const { user, isLoading, isAuthenticated, login } = useAuth();
+  const { user, isLoading, isAuthenticated, login, selectedRole, setSelectedRole } = useAuth();
 
   useEffect(() => {
     if (isAuthenticated && user) {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, user]);
+
+  const handleLogin = (role: string) => {
+    setSelectedRole(role);
+    login(role);
+  };
 
   if (isLoading) {
     return (
@@ -86,45 +89,70 @@ export default function LandingPage() {
           </View>
         </View>
 
-        {/* Login Section */}
+        {/* Login Section with Role Selection */}
         <View style={styles.loginSection}>
-          <TouchableOpacity style={styles.loginButton} onPress={login}>
-            <Ionicons name="logo-google" size={22} color="#fff" />
-            <Text style={styles.loginButtonText}>Accedi con Google</Text>
+          <Text style={styles.loginTitle}>Accedi come:</Text>
+          
+          {/* Admin Login */}
+          <TouchableOpacity 
+            style={[styles.roleLoginButton, styles.adminButton]} 
+            onPress={() => handleLogin('admin')}
+          >
+            <View style={styles.roleLoginContent}>
+              <View style={[styles.roleLoginIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                <Ionicons name="shield-checkmark" size={24} color="#fff" />
+              </View>
+              <View style={styles.roleLoginText}>
+                <Text style={styles.roleLoginTitle}>Amministratore</Text>
+                <Text style={styles.roleLoginDesc}>Gestione completa dell'accademia</Text>
+              </View>
+            </View>
+            <View style={styles.googleBadge}>
+              <Ionicons name="logo-google" size={16} color="#fff" />
+            </View>
+          </TouchableOpacity>
+          
+          {/* Student Login */}
+          <TouchableOpacity 
+            style={[styles.roleLoginButton, styles.studentButton]} 
+            onPress={() => handleLogin('studente')}
+          >
+            <View style={styles.roleLoginContent}>
+              <View style={[styles.roleLoginIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                <Ionicons name="person" size={24} color="#fff" />
+              </View>
+              <View style={styles.roleLoginText}>
+                <Text style={styles.roleLoginTitle}>Studente</Text>
+                <Text style={styles.roleLoginDesc}>Visualizza corsi, lezioni e pagamenti</Text>
+              </View>
+            </View>
+            <View style={styles.googleBadge}>
+              <Ionicons name="logo-google" size={16} color="#fff" />
+            </View>
+          </TouchableOpacity>
+          
+          {/* Teacher Login */}
+          <TouchableOpacity 
+            style={[styles.roleLoginButton, styles.teacherButton]} 
+            onPress={() => handleLogin('insegnante')}
+          >
+            <View style={styles.roleLoginContent}>
+              <View style={[styles.roleLoginIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                <Ionicons name="school" size={24} color="#fff" />
+              </View>
+              <View style={styles.roleLoginText}>
+                <Text style={styles.roleLoginTitle}>Insegnante</Text>
+                <Text style={styles.roleLoginDesc}>Gestisci lezioni e monitora compensi</Text>
+              </View>
+            </View>
+            <View style={styles.googleBadge}>
+              <Ionicons name="logo-google" size={16} color="#fff" />
+            </View>
           </TouchableOpacity>
           
           <Text style={styles.loginHint}>
-            Accedi per visualizzare la tua dashboard personalizzata
+            Seleziona il tuo ruolo e accedi con il tuo account Google
           </Text>
-        </View>
-
-        {/* Roles Info */}
-        <View style={styles.rolesSection}>
-          <Text style={styles.rolesSectionTitle}>Aree Dedicate</Text>
-          
-          <View style={styles.roleCard}>
-            <Ionicons name="shield-checkmark" size={24} color="#4A90D9" />
-            <View style={styles.roleInfo}>
-              <Text style={styles.roleTitle}>Amministratore</Text>
-              <Text style={styles.roleDesc}>Gestione completa di utenti, corsi, lezioni e pagamenti</Text>
-            </View>
-          </View>
-          
-          <View style={styles.roleCard}>
-            <Ionicons name="person" size={24} color="#10B981" />
-            <View style={styles.roleInfo}>
-              <Text style={styles.roleTitle}>Studente</Text>
-              <Text style={styles.roleDesc}>Visualizza i tuoi corsi, lezioni e pagamenti</Text>
-            </View>
-          </View>
-          
-          <View style={styles.roleCard}>
-            <Ionicons name="school" size={24} color="#F59E0B" />
-            <View style={styles.roleInfo}>
-              <Text style={styles.roleTitle}>Insegnante</Text>
-              <Text style={styles.roleDesc}>Gestisci le tue lezioni e monitora i compensi</Text>
-            </View>
-          </View>
         </View>
 
         {/* Footer */}
@@ -159,144 +187,152 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     paddingTop: 30,
-    paddingBottom: 20,
+    paddingBottom: 16,
   },
   logoContainer: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#EBF5FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   title: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '300',
     color: '#333',
   },
   titleHighlight: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#4A90D9',
-    marginTop: 4,
+    marginTop: 2,
   },
   subtitle: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#666',
-    marginTop: 8,
+    marginTop: 6,
   },
   featuresSection: {
-    marginTop: 20,
+    marginTop: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   featureRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   featureCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 6,
+    borderRadius: 10,
+    padding: 12,
+    marginHorizontal: 4,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  featureIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  featureTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  featureDesc: {
-    fontSize: 11,
-    color: '#888',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  loginSection: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  loginButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4A90D9',
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 25,
-    shadowColor: '#4A90D9',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 10,
-  },
-  loginHint: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  rolesSection: {
-    marginTop: 30,
-  },
-  rolesSectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 14,
-  },
-  roleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 2,
     elevation: 1,
   },
-  roleInfo: {
-    flex: 1,
-    marginLeft: 14,
+  featureIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  roleTitle: {
-    fontSize: 15,
+  featureTitle: {
+    fontSize: 13,
     fontWeight: '600',
     color: '#333',
   },
-  roleDesc: {
-    fontSize: 12,
-    color: '#666',
+  featureDesc: {
+    fontSize: 10,
+    color: '#888',
+    textAlign: 'center',
     marginTop: 2,
+  },
+  loginSection: {
+    marginTop: 24,
+  },
+  loginTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  roleLoginButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  adminButton: {
+    backgroundColor: '#4A90D9',
+  },
+  studentButton: {
+    backgroundColor: '#10B981',
+  },
+  teacherButton: {
+    backgroundColor: '#F59E0B',
+  },
+  roleLoginContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  roleLoginIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  roleLoginText: {
+    flex: 1,
+  },
+  roleLoginTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  roleLoginDesc: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
+  },
+  googleBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loginHint: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 8,
+    textAlign: 'center',
   },
   footer: {
     marginTop: 30,
