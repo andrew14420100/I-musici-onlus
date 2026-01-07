@@ -1242,7 +1242,7 @@ async def seed_database():
         "ruolo": UserRole.ADMIN.value,
         "nome": "Admin",
         "cognome": "Sistema",
-        "email": "admin@musici.it",
+        "email": "acc.imusici@gmail.com",
         "password_hash": hash_password("admin123"),  # Will not be used for login
         "attivo": True,
         "data_creazione": datetime.now(timezone.utc),
@@ -1379,7 +1379,7 @@ async def seed_database():
             "notifiche": 2
         },
         "credenziali_test": {
-            "admin": {"email": "admin@musici.it", "pin": "1234", "note": "Dopo PIN usare Google con stessa email"},
+            "admin": {"email": "acc.imusici@gmail.com", "pin": "1234", "note": "Dopo PIN usare Google con stessa email"},
             "insegnante": {"email": "mario.rossi@musici.it", "password": "teacher123"},
             "allievo": {"email": "giulia.ferrari@email.it", "password": "student123"}
         }
