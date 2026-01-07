@@ -45,7 +45,7 @@ export interface UserDetail {
 
 export interface User {
   id: string;
-  ruolo: UserRole;
+  ruolo: UserRole | string;
   nome: string;
   cognome: string;
   email: string;
@@ -54,6 +54,9 @@ export interface User {
   ultimo_accesso?: string;
   note_admin?: string;
   dettaglio?: UserDetail;
+  // Legacy/compatibility fields
+  name?: string;
+  picture?: string;
 }
 
 export interface Attendance {
