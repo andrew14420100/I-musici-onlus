@@ -18,7 +18,7 @@ import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 export default function DashboardScreen() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading, isInitialized } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -33,7 +33,7 @@ export default function DashboardScreen() {
       }
       
       // Fetch stats (only for admin)
-      if (user?.role === UserRole.ADMIN) {
+      if (user?.ruolo === 'amministratore') {
         const data = await statsApi.getAdminStats();
         setStats(data);
       }
@@ -45,7 +45,9 @@ export default function DashboardScreen() {
   };
 
   useEffect(() => {
-    fetchData();
+    if (user) {
+      fetchData();
+    }
   }, [user]);
 
   const onRefresh = useCallback(async () => {
@@ -55,19 +57,40 @@ export default function DashboardScreen() {
   }, []);
 
   const getRoleLabel = () => {
-    switch (user?.role) {
-      case UserRole.ADMIN:
+    switch (user?.ruolo) {
+      case 'amministratore':
         return 'Amministratore';
-      case UserRole.TEACHER:
+      case 'insegnante':
         return 'Insegnante';
-      case UserRole.STUDENT:
+      case 'studente':
         return 'Studente';
       default:
         return 'Utente';
     }
   };
 
-  if (loading) {
+  // Helper to get user initials safely
+  const getUserInitials = () => {
+    if (!user) return '?';
+    const name = user.nome || user.name || '';
+    const cognome = user.cognome || '';
+    if (cognome) {
+      return `${name.charAt(0)}${cognome.charAt(0)}`.toUpperCase();
+    }
+    return name.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
+  };
+
+  // Helper to get display name
+  const getDisplayName = () => {
+    if (!user) return 'Utente';
+    if (user.nome && user.cognome) {
+      return `${user.nome} ${user.cognome}`;
+    }
+    return user.nome || user.name || user.email || 'Utente';
+  };
+
+  // Show loading while auth is initializing or user not ready
+  if (!isInitialized || authLoading || loading || !user) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4A90D9" />
