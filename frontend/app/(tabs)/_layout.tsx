@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { UserRole } from '../../src/types';
-import { View, Text, ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 
 export default function TabsLayout() {
@@ -23,8 +23,6 @@ export default function TabsLayout() {
   }
 
   const isAdmin = user?.role === UserRole.ADMIN;
-  const isTeacher = user?.role === UserRole.TEACHER;
-  const isStudent = user?.role === UserRole.STUDENT;
 
   return (
     <Tabs
@@ -62,7 +60,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           headerTitle: 'Accademia de "I Musici"',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home" size={size} color={color} />
@@ -81,12 +79,12 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="courses"
+        name="attendance"
         options={{
-          title: 'Corsi',
-          headerTitle: 'Corsi e Lezioni',
+          title: 'Presenze',
+          headerTitle: 'Registro Presenze',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="school" size={size} color={color} />
+            <Ionicons name="checkmark-circle" size={size} color={color} />
           ),
         }}
       />
@@ -108,6 +106,13 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="notifications" size={size} color={color} />
           ),
+        }}
+      />
+      {/* Hidden screens */}
+      <Tabs.Screen
+        name="courses"
+        options={{
+          href: null,
         }}
       />
     </Tabs>
