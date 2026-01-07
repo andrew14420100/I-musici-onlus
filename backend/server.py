@@ -1014,6 +1014,241 @@ async def seed_database(request: Request):
         }
     }
 
+# ===================== ATTENDANCE ROUTES =====================
+
+@api_router.get("/attendance")
+async def get_attendance(
+    request: Request,
+    student_id: Optional[str] = None,
+    teacher_id: Optional[str] = None,
+    instrument: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None
+):
+    """Get attendance records with optional filters"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    
+    # Filter based on role
+    if current_user.role == UserRole.STUDENT:
+        query["student_id"] = current_user.user_id
+    elif current_user.role == UserRole.TEACHER:
+        query["teacher_id"] = current_user.user_id
+        if student_id:
+            query["student_id"] = student_id
+    else:  # Admin
+        if student_id:
+            query["student_id"] = student_id
+        if teacher_id:
+            query["teacher_id"] = teacher_id
+    
+    if instrument:
+        query["instrument"] = instrument
+    
+    if from_date:
+        query["date"] = {"$gte": datetime.fromisoformat(from_date)}
+    if to_date:
+        if "date" in query:
+            query["date"]["$lte"] = datetime.fromisoformat(to_date)
+        else:
+            query["date"] = {"$lte": datetime.fromisoformat(to_date)}
+    
+    records = await db.attendance.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    return records
+
+@api_router.post("/attendance")
+async def create_attendance(attendance_data: AttendanceCreate, request: Request):
+    """Create an attendance record (teacher or admin)"""
+    current_user = await require_auth(request)
+    
+    if current_user.role == UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    # Get teacher's instrument
+    teacher_instrument = current_user.instrument
+    if current_user.role == UserRole.ADMIN:
+        teacher_instrument = "admin"
+    
+    attendance_record = {
+        "attendance_id": f"att_{uuid.uuid4().hex[:12]}",
+        "lesson_id": attendance_data.lesson_id,
+        "student_id": attendance_data.student_id,
+        "teacher_id": current_user.user_id,
+        "instrument": teacher_instrument or "non_specificato",
+        "date": datetime.fromisoformat(attendance_data.date),
+        "status": attendance_data.status.value,
+        "notes": attendance_data.notes,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.attendance.insert_one(attendance_record)
+    attendance_record.pop("_id", None)
+    return attendance_record
+
+@api_router.put("/attendance/{attendance_id}")
+async def update_attendance(attendance_id: str, attendance_data: AttendanceUpdate, request: Request):
+    """Update an attendance record"""
+    current_user = await require_auth(request)
+    
+    existing = await db.attendance.find_one({"attendance_id": attendance_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Presenza non trovata")
+    
+    # Only admin or the teacher who created it can update
+    if current_user.role != UserRole.ADMIN and current_user.user_id != existing["teacher_id"]:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    update_dict = {k: v for k, v in attendance_data.model_dump().items() if v is not None}
+    if "status" in update_dict:
+        update_dict["status"] = update_dict["status"].value
+    
+    if update_dict:
+        await db.attendance.update_one({"attendance_id": attendance_id}, {"$set": update_dict})
+    
+    record = await db.attendance.find_one({"attendance_id": attendance_id}, {"_id": 0})
+    return record
+
+@api_router.delete("/attendance/{attendance_id}")
+async def delete_attendance(attendance_id: str, request: Request):
+    """Delete an attendance record"""
+    current_user = await require_auth(request)
+    
+    if current_user.role == UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    result = await db.attendance.delete_one({"attendance_id": attendance_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Presenza non trovata")
+    
+    return {"message": "Presenza eliminata"}
+
+# ===================== ASSIGNMENT ROUTES =====================
+
+@api_router.get("/assignments")
+async def get_assignments(
+    request: Request,
+    student_id: Optional[str] = None,
+    teacher_id: Optional[str] = None,
+    completed: Optional[bool] = None
+):
+    """Get assignments with optional filters"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    
+    # Filter based on role
+    if current_user.role == UserRole.STUDENT:
+        query["student_id"] = current_user.user_id
+    elif current_user.role == UserRole.TEACHER:
+        query["teacher_id"] = current_user.user_id
+        if student_id:
+            query["student_id"] = student_id
+    else:  # Admin
+        if student_id:
+            query["student_id"] = student_id
+        if teacher_id:
+            query["teacher_id"] = teacher_id
+    
+    if completed is not None:
+        query["completed"] = completed
+    
+    assignments = await db.assignments.find(query, {"_id": 0}).sort("due_date", 1).to_list(500)
+    return assignments
+
+@api_router.post("/assignments")
+async def create_assignment(assignment_data: AssignmentCreate, request: Request):
+    """Create an assignment (teacher or admin)"""
+    current_user = await require_auth(request)
+    
+    if current_user.role == UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    # Get teacher's instrument
+    teacher_instrument = current_user.instrument
+    if current_user.role == UserRole.ADMIN:
+        teacher_instrument = "admin"
+    
+    assignment = {
+        "assignment_id": f"assign_{uuid.uuid4().hex[:12]}",
+        "teacher_id": current_user.user_id,
+        "student_id": assignment_data.student_id,
+        "instrument": teacher_instrument or "non_specificato",
+        "title": assignment_data.title,
+        "description": assignment_data.description,
+        "due_date": datetime.fromisoformat(assignment_data.due_date),
+        "completed": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.assignments.insert_one(assignment)
+    assignment.pop("_id", None)
+    return assignment
+
+@api_router.put("/assignments/{assignment_id}")
+async def update_assignment(assignment_id: str, assignment_data: AssignmentUpdate, request: Request):
+    """Update an assignment"""
+    current_user = await require_auth(request)
+    
+    existing = await db.assignments.find_one({"assignment_id": assignment_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Compito non trovato")
+    
+    # Students can only mark as completed
+    if current_user.role == UserRole.STUDENT:
+        if current_user.user_id != existing["student_id"]:
+            raise HTTPException(status_code=403, detail="Non autorizzato")
+        # Students can only update completed status
+        if assignment_data.completed is not None:
+            await db.assignments.update_one(
+                {"assignment_id": assignment_id}, 
+                {"$set": {"completed": assignment_data.completed}}
+            )
+    else:
+        # Teachers/admins can update everything
+        update_dict = {k: v for k, v in assignment_data.model_dump().items() if v is not None}
+        if "due_date" in update_dict:
+            update_dict["due_date"] = datetime.fromisoformat(update_dict["due_date"])
+        
+        if update_dict:
+            await db.assignments.update_one({"assignment_id": assignment_id}, {"$set": update_dict})
+    
+    record = await db.assignments.find_one({"assignment_id": assignment_id}, {"_id": 0})
+    return record
+
+@api_router.delete("/assignments/{assignment_id}")
+async def delete_assignment(assignment_id: str, request: Request):
+    """Delete an assignment"""
+    current_user = await require_auth(request)
+    
+    if current_user.role == UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    result = await db.assignments.delete_one({"assignment_id": assignment_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Compito non trovato")
+    
+    return {"message": "Compito eliminato"}
+
+# ===================== TEACHER STUDENTS =====================
+
+@api_router.get("/teacher/students")
+async def get_teacher_students(request: Request):
+    """Get students that share the same instrument as the teacher"""
+    current_user = await require_auth(request)
+    
+    if current_user.role == UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    query = {"role": "studente", "status": "attivo"}
+    
+    # If teacher, filter by instrument
+    if current_user.role == UserRole.TEACHER and current_user.instrument:
+        query["instrument"] = current_user.instrument
+    
+    students = await db.users.find(query, {"_id": 0}).to_list(500)
+    return students
+
 # ===================== MAIN ROUTES =====================
 
 @api_router.get("/")
