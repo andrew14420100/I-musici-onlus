@@ -1231,32 +1231,21 @@ async def seed_database():
     if existing > 3:
         return {"message": "Database già popolato", "status": "skipped"}
     
-    # Create default admin
+    # Create default admin with email/password
     admin_id = str(uuid.uuid4())
     admin = {
         "id": admin_id,
         "ruolo": UserRole.ADMIN.value,
         "nome": "Admin",
-        "cognome": "Sistema",
+        "cognome": "Accademia",
         "email": "acc.imusici@gmail.com",
-        "password_hash": hash_password("admin123"),  # Will not be used for login
+        "password_hash": hash_password("Accademia2026"),
         "attivo": True,
         "data_creazione": datetime.now(timezone.utc),
         "ultimo_accesso": None,
         "note_admin": "Account amministratore principale"
     }
     await db.utenti.insert_one(admin)
-    
-    # Create admin access with PIN
-    admin_access = {
-        "id": str(uuid.uuid4()),
-        "utente_id": admin_id,
-        "pin_hash": hash_password("1234"),  # Default PIN
-        "pin_attivo": True,
-        "google_id": None,
-        "ultimo_accesso": None
-    }
-    await db.accesso_amministrazione.insert_one(admin_access)
     
     # Create sample teachers
     teachers = [
