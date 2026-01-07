@@ -1,6 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, Course, Lesson, Payment, Notification, AdminStats, Attendance, Assignment } from '../types';
+import { User, Attendance, Assignment, Payment, Notification, AdminStats } from '../types';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -20,189 +20,91 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Auth
+// Auth - Student/Teacher login (email + password)
 export const authApi = {
-  exchangeSession: async (sessionId: string, role?: string, instrument?: string) => {
-    const response = await api.post('/auth/session', { 
-      session_id: sessionId,
-      role: role || 'studente',
-      instrument: instrument
-    });
+  login: async (email: string, password: string) => {
+    const response = await api.post('/auth/login', { email, password });
     return response.data;
   },
+  
+  // Admin 2-factor: Step 1 - PIN verification
+  adminPinVerify: async (email: string, pin: string) => {
+    const response = await api.post('/auth/admin/pin', { email, pin });
+    return response.data;
+  },
+  
+  // Admin 2-factor: Step 2 - Google verification
+  adminGoogleVerify: async (email: string, sessionId: string) => {
+    const response = await api.post('/auth/admin/google', { email, session_id: sessionId });
+    return response.data;
+  },
+  
   getMe: async () => {
     const response = await api.get('/auth/me');
     return response.data as User;
   },
+  
   logout: async () => {
     await api.post('/auth/logout');
   },
 };
 
-// Users
+// Users (Admin only)
 export const usersApi = {
-  getAll: async (role?: string, status?: string) => {
+  getAll: async (ruolo?: string, attivo?: boolean) => {
     const params = new URLSearchParams();
-    if (role) params.append('role', role);
-    if (status) params.append('status', status);
-    const response = await api.get(`/users?${params}`);
+    if (ruolo) params.append('ruolo', ruolo);
+    if (attivo !== undefined) params.append('attivo', String(attivo));
+    const response = await api.get(`/utenti?${params}`);
     return response.data as User[];
   },
   get: async (userId: string) => {
-    const response = await api.get(`/users/${userId}`);
+    const response = await api.get(`/utenti/${userId}`);
     return response.data as User;
   },
-  create: async (data: { email: string; name: string; phone?: string; role: string; instrument?: string }) => {
-    const response = await api.post('/users', data);
+  create: async (data: { 
+    ruolo: string; 
+    nome: string; 
+    cognome: string; 
+    email: string; 
+    password: string;
+    note_admin?: string;
+  }) => {
+    const response = await api.post('/utenti', data);
     return response.data as User;
   },
-  update: async (userId: string, data: Partial<User>) => {
-    const response = await api.put(`/users/${userId}`, data);
+  update: async (userId: string, data: Partial<User> & { password?: string }) => {
+    const response = await api.put(`/utenti/${userId}`, data);
     return response.data as User;
   },
   delete: async (userId: string) => {
-    await api.delete(`/users/${userId}`);
+    await api.delete(`/utenti/${userId}`);
   },
-};
-
-// Courses
-export const coursesApi = {
-  getAll: async (status?: string, instrument?: string) => {
-    const params = new URLSearchParams();
-    if (status) params.append('status', status);
-    if (instrument) params.append('instrument', instrument);
-    const response = await api.get(`/courses?${params}`);
-    return response.data as Course[];
-  },
-  get: async (courseId: string) => {
-    const response = await api.get(`/courses/${courseId}`);
-    return response.data as Course;
-  },
-  create: async (data: { name: string; instrument: string; description?: string }) => {
-    const response = await api.post('/courses', data);
-    return response.data as Course;
-  },
-  update: async (courseId: string, data: Partial<Course>) => {
-    const response = await api.put(`/courses/${courseId}`, data);
-    return response.data as Course;
-  },
-  delete: async (courseId: string) => {
-    await api.delete(`/courses/${courseId}`);
-  },
-};
-
-// Lessons
-export const lessonsApi = {
-  getAll: async (filters?: {
-    course_id?: string;
-    teacher_id?: string;
-    student_id?: string;
-    status?: string;
-    from_date?: string;
-    to_date?: string;
+  // Student detail
+  updateStudentDetail: async (userId: string, data: {
+    telefono?: string;
+    data_nascita?: string;
+    corso_principale?: string;
+    note?: string;
   }) => {
-    const params = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) params.append(key, value);
-      });
-    }
-    const response = await api.get(`/lessons?${params}`);
-    return response.data as Lesson[];
+    const response = await api.post(`/utenti/${userId}/dettaglio-allievo`, data);
+    return response.data;
   },
-  get: async (lessonId: string) => {
-    const response = await api.get(`/lessons/${lessonId}`);
-    return response.data as Lesson;
-  },
-  create: async (data: {
-    course_id: string;
-    teacher_id: string;
-    student_id: string;
-    date_time: string;
-    duration_minutes?: number;
-    notes?: string;
+  // Teacher detail
+  updateTeacherDetail: async (userId: string, data: {
+    specializzazione?: string;
+    compenso_orario?: number;
+    note?: string;
   }) => {
-    const response = await api.post('/lessons', data);
-    return response.data as Lesson;
-  },
-  update: async (lessonId: string, data: Partial<Lesson>) => {
-    const response = await api.put(`/lessons/${lessonId}`, data);
-    return response.data as Lesson;
-  },
-  delete: async (lessonId: string) => {
-    await api.delete(`/lessons/${lessonId}`);
-  },
-};
-
-// Payments
-export const paymentsApi = {
-  getAll: async (filters?: {
-    user_id?: string;
-    payment_type?: string;
-    status?: string;
-  }) => {
-    const params = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) params.append(key, value);
-      });
-    }
-    const response = await api.get(`/payments?${params}`);
-    return response.data as Payment[];
-  },
-  get: async (paymentId: string) => {
-    const response = await api.get(`/payments/${paymentId}`);
-    return response.data as Payment;
-  },
-  create: async (data: {
-    user_id: string;
-    payment_type: string;
-    amount: number;
-    description: string;
-    due_date: string;
-  }) => {
-    const response = await api.post('/payments', data);
-    return response.data as Payment;
-  },
-  update: async (paymentId: string, data: Partial<Payment>) => {
-    const response = await api.put(`/payments/${paymentId}`, data);
-    return response.data as Payment;
-  },
-  delete: async (paymentId: string) => {
-    await api.delete(`/payments/${paymentId}`);
-  },
-};
-
-// Notifications
-export const notificationsApi = {
-  getAll: async (activeOnly: boolean = true) => {
-    const response = await api.get(`/notifications?active_only=${activeOnly}`);
-    return response.data as Notification[];
-  },
-  create: async (data: {
-    title: string;
-    message: string;
-    notification_type?: string;
-    recipient_ids?: string[];
-  }) => {
-    const response = await api.post('/notifications', data);
-    return response.data as Notification;
-  },
-  update: async (notificationId: string, data: Partial<Notification>) => {
-    const response = await api.put(`/notifications/${notificationId}`, data);
-    return response.data as Notification;
-  },
-  delete: async (notificationId: string) => {
-    await api.delete(`/notifications/${notificationId}`);
+    const response = await api.post(`/utenti/${userId}/dettaglio-insegnante`, data);
+    return response.data;
   },
 };
 
 // Attendance
 export const attendanceApi = {
   getAll: async (filters?: {
-    student_id?: string;
-    teacher_id?: string;
-    instrument?: string;
+    allievo_id?: string;
     from_date?: string;
     to_date?: string;
   }) => {
@@ -212,34 +114,32 @@ export const attendanceApi = {
         if (value) params.append(key, value);
       });
     }
-    const response = await api.get(`/attendance?${params}`);
+    const response = await api.get(`/presenze?${params}`);
     return response.data as Attendance[];
   },
   create: async (data: {
-    student_id: string;
-    date: string;
-    status: string;
-    notes?: string;
-    lesson_id?: string;
+    allievo_id: string;
+    data: string;
+    stato: string;
+    note?: string;
   }) => {
-    const response = await api.post('/attendance', data);
+    const response = await api.post('/presenze', data);
     return response.data as Attendance;
   },
-  update: async (attendanceId: string, data: { status?: string; notes?: string }) => {
-    const response = await api.put(`/attendance/${attendanceId}`, data);
+  update: async (attendanceId: string, data: { stato?: string; note?: string }) => {
+    const response = await api.put(`/presenze/${attendanceId}`, data);
     return response.data as Attendance;
   },
   delete: async (attendanceId: string) => {
-    await api.delete(`/attendance/${attendanceId}`);
+    await api.delete(`/presenze/${attendanceId}`);
   },
 };
 
 // Assignments
 export const assignmentsApi = {
   getAll: async (filters?: {
-    student_id?: string;
-    teacher_id?: string;
-    completed?: boolean;
+    allievo_id?: string;
+    completato?: boolean;
   }) => {
     const params = new URLSearchParams();
     if (filters) {
@@ -247,31 +147,90 @@ export const assignmentsApi = {
         if (value !== undefined) params.append(key, String(value));
       });
     }
-    const response = await api.get(`/assignments?${params}`);
+    const response = await api.get(`/compiti?${params}`);
     return response.data as Assignment[];
   },
   create: async (data: {
-    student_id: string;
-    title: string;
-    description: string;
-    due_date: string;
+    allievo_id: string;
+    titolo: string;
+    descrizione: string;
+    data_scadenza: string;
   }) => {
-    const response = await api.post('/assignments', data);
+    const response = await api.post('/compiti', data);
     return response.data as Assignment;
   },
   update: async (assignmentId: string, data: Partial<Assignment>) => {
-    const response = await api.put(`/assignments/${assignmentId}`, data);
+    const response = await api.put(`/compiti/${assignmentId}`, data);
     return response.data as Assignment;
   },
   delete: async (assignmentId: string) => {
-    await api.delete(`/assignments/${assignmentId}`);
+    await api.delete(`/compiti/${assignmentId}`);
+  },
+};
+
+// Payments
+export const paymentsApi = {
+  getAll: async (filters?: {
+    utente_id?: string;
+    tipo?: string;
+    stato?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    const response = await api.get(`/pagamenti?${params}`);
+    return response.data as Payment[];
+  },
+  create: async (data: {
+    utente_id: string;
+    tipo: string;
+    importo: number;
+    descrizione: string;
+    data_scadenza: string;
+  }) => {
+    const response = await api.post('/pagamenti', data);
+    return response.data as Payment;
+  },
+  update: async (paymentId: string, data: Partial<Payment>) => {
+    const response = await api.put(`/pagamenti/${paymentId}`, data);
+    return response.data as Payment;
+  },
+  delete: async (paymentId: string) => {
+    await api.delete(`/pagamenti/${paymentId}`);
+  },
+};
+
+// Notifications
+export const notificationsApi = {
+  getAll: async (attivoOnly: boolean = true) => {
+    const response = await api.get(`/notifiche?attivo_only=${attivoOnly}`);
+    return response.data as Notification[];
+  },
+  create: async (data: {
+    titolo: string;
+    messaggio: string;
+    tipo?: string;
+    destinatari_ids?: string[];
+  }) => {
+    const response = await api.post('/notifiche', data);
+    return response.data as Notification;
+  },
+  update: async (notificationId: string, data: Partial<Notification>) => {
+    const response = await api.put(`/notifiche/${notificationId}`, data);
+    return response.data as Notification;
+  },
+  delete: async (notificationId: string) => {
+    await api.delete(`/notifiche/${notificationId}`);
   },
 };
 
 // Teacher specific
 export const teacherApi = {
   getStudents: async () => {
-    const response = await api.get('/teacher/students');
+    const response = await api.get('/insegnante/allievi');
     return response.data as User[];
   },
 };
