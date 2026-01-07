@@ -331,7 +331,7 @@ async def require_teacher_or_admin(request: Request) -> dict:
 
 @api_router.post("/auth/login")
 async def login(login_data: LoginRequest, request: Request, response: Response):
-    """Login for Students and Teachers (email + password)"""
+    """Login for all users (email + password) - including Admin"""
     # Find user by email
     user = await db.utenti.find_one({"email": login_data.email.lower()}, {"_id": 0})
     
@@ -341,10 +341,6 @@ async def login(login_data: LoginRequest, request: Request, response: Response):
     # Check if user is active
     if not user.get("attivo", False):
         raise HTTPException(status_code=401, detail="Account disattivato. Contattare l'amministrazione.")
-    
-    # Admin cannot login with this endpoint
-    if user.get("ruolo") == UserRole.ADMIN.value:
-        raise HTTPException(status_code=401, detail="Gli amministratori devono usare il login a 2 fattori")
     
     # Verify password
     if not verify_password(login_data.password, user.get("password_hash", "")):
