@@ -1,6 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, Course, Lesson, Payment, Notification, AdminStats } from '../types';
+import { User, Course, Lesson, Payment, Notification, AdminStats, Attendance, Assignment } from '../types';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -22,10 +22,11 @@ api.interceptors.request.use(async (config) => {
 
 // Auth
 export const authApi = {
-  exchangeSession: async (sessionId: string, role?: string) => {
+  exchangeSession: async (sessionId: string, role?: string, instrument?: string) => {
     const response = await api.post('/auth/session', { 
       session_id: sessionId,
-      role: role || 'studente'
+      role: role || 'studente',
+      instrument: instrument
     });
     return response.data;
   },
@@ -51,7 +52,7 @@ export const usersApi = {
     const response = await api.get(`/users/${userId}`);
     return response.data as User;
   },
-  create: async (data: { email: string; name: string; phone?: string; role: string }) => {
+  create: async (data: { email: string; name: string; phone?: string; role: string; instrument?: string }) => {
     const response = await api.post('/users', data);
     return response.data as User;
   },
@@ -87,22 +88,6 @@ export const coursesApi = {
   },
   delete: async (courseId: string) => {
     await api.delete(`/courses/${courseId}`);
-  },
-  assignTeacher: async (courseId: string, teacherId: string) => {
-    const response = await api.post(`/courses/${courseId}/teachers/${teacherId}`);
-    return response.data as Course;
-  },
-  removeTeacher: async (courseId: string, teacherId: string) => {
-    const response = await api.delete(`/courses/${courseId}/teachers/${teacherId}`);
-    return response.data as Course;
-  },
-  enrollStudent: async (courseId: string, studentId: string) => {
-    const response = await api.post(`/courses/${courseId}/students/${studentId}`);
-    return response.data as Course;
-  },
-  removeStudent: async (courseId: string, studentId: string) => {
-    const response = await api.delete(`/courses/${courseId}/students/${studentId}`);
-    return response.data as Course;
   },
 };
 
@@ -209,6 +194,85 @@ export const notificationsApi = {
   },
   delete: async (notificationId: string) => {
     await api.delete(`/notifications/${notificationId}`);
+  },
+};
+
+// Attendance
+export const attendanceApi = {
+  getAll: async (filters?: {
+    student_id?: string;
+    teacher_id?: string;
+    instrument?: string;
+    from_date?: string;
+    to_date?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    const response = await api.get(`/attendance?${params}`);
+    return response.data as Attendance[];
+  },
+  create: async (data: {
+    student_id: string;
+    date: string;
+    status: string;
+    notes?: string;
+    lesson_id?: string;
+  }) => {
+    const response = await api.post('/attendance', data);
+    return response.data as Attendance;
+  },
+  update: async (attendanceId: string, data: { status?: string; notes?: string }) => {
+    const response = await api.put(`/attendance/${attendanceId}`, data);
+    return response.data as Attendance;
+  },
+  delete: async (attendanceId: string) => {
+    await api.delete(`/attendance/${attendanceId}`);
+  },
+};
+
+// Assignments
+export const assignmentsApi = {
+  getAll: async (filters?: {
+    student_id?: string;
+    teacher_id?: string;
+    completed?: boolean;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined) params.append(key, String(value));
+      });
+    }
+    const response = await api.get(`/assignments?${params}`);
+    return response.data as Assignment[];
+  },
+  create: async (data: {
+    student_id: string;
+    title: string;
+    description: string;
+    due_date: string;
+  }) => {
+    const response = await api.post('/assignments', data);
+    return response.data as Assignment;
+  },
+  update: async (assignmentId: string, data: Partial<Assignment>) => {
+    const response = await api.put(`/assignments/${assignmentId}`, data);
+    return response.data as Assignment;
+  },
+  delete: async (assignmentId: string) => {
+    await api.delete(`/assignments/${assignmentId}`);
+  },
+};
+
+// Teacher specific
+export const teacherApi = {
+  getStudents: async () => {
+    const response = await api.get('/teacher/students');
+    return response.data as User[];
   },
 };
 
