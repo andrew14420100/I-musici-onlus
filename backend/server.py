@@ -938,20 +938,23 @@ async def seed_database(request: Request):
     if existing > 5:
         return {"message": "Database già popolato", "status": "skipped"}
     
-    # Sample teachers
+    # Sample teachers with instruments
     teachers = [
-        {"user_id": "teacher_001", "email": "mario.rossi@musici.it", "name": "Mario Rossi", "role": "insegnante", "status": "attivo", "phone": "+39 333 1234567", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "teacher_002", "email": "lucia.bianchi@musici.it", "name": "Lucia Bianchi", "role": "insegnante", "status": "attivo", "phone": "+39 333 2345678", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "teacher_003", "email": "paolo.verdi@musici.it", "name": "Paolo Verdi", "role": "insegnante", "status": "attivo", "phone": "+39 333 3456789", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "teacher_001", "email": "mario.rossi@musici.it", "name": "Mario Rossi", "role": "insegnante", "instrument": "pianoforte", "status": "attivo", "phone": "+39 333 1234567", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "teacher_002", "email": "lucia.bianchi@musici.it", "name": "Lucia Bianchi", "role": "insegnante", "instrument": "violino", "status": "attivo", "phone": "+39 333 2345678", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "teacher_003", "email": "paolo.verdi@musici.it", "name": "Paolo Verdi", "role": "insegnante", "instrument": "chitarra", "status": "attivo", "phone": "+39 333 3456789", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "teacher_004", "email": "anna.neri@musici.it", "name": "Anna Neri", "role": "insegnante", "instrument": "canto", "status": "attivo", "phone": "+39 333 4567890", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "teacher_005", "email": "roberto.blu@musici.it", "name": "Roberto Blu", "role": "insegnante", "instrument": "percussioni", "status": "attivo", "phone": "+39 333 5678901", "picture": None, "created_at": datetime.now(timezone.utc)},
     ]
     
-    # Sample students
+    # Sample students with instruments
     students = [
-        {"user_id": "student_001", "email": "giulia.ferrari@email.it", "name": "Giulia Ferrari", "role": "studente", "status": "attivo", "phone": "+39 340 1111111", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_002", "email": "marco.romano@email.it", "name": "Marco Romano", "role": "studente", "status": "attivo", "phone": "+39 340 2222222", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_003", "email": "sara.conti@email.it", "name": "Sara Conti", "role": "studente", "status": "attivo", "phone": "+39 340 3333333", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_004", "email": "luca.esposito@email.it", "name": "Luca Esposito", "role": "studente", "status": "attivo", "phone": "+39 340 4444444", "picture": None, "created_at": datetime.now(timezone.utc)},
-        {"user_id": "student_005", "email": "anna.bruno@email.it", "name": "Anna Bruno", "role": "studente", "status": "inattivo", "phone": "+39 340 5555555", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "student_001", "email": "giulia.ferrari@email.it", "name": "Giulia Ferrari", "role": "studente", "instrument": "pianoforte", "status": "attivo", "phone": "+39 340 1111111", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "student_002", "email": "marco.romano@email.it", "name": "Marco Romano", "role": "studente", "instrument": "pianoforte", "status": "attivo", "phone": "+39 340 2222222", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "student_003", "email": "sara.conti@email.it", "name": "Sara Conti", "role": "studente", "instrument": "violino", "status": "attivo", "phone": "+39 340 3333333", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "student_004", "email": "luca.esposito@email.it", "name": "Luca Esposito", "role": "studente", "instrument": "chitarra", "status": "attivo", "phone": "+39 340 4444444", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "student_005", "email": "anna.bruno@email.it", "name": "Anna Bruno", "role": "studente", "instrument": "canto", "status": "attivo", "phone": "+39 340 5555555", "picture": None, "created_at": datetime.now(timezone.utc)},
+        {"user_id": "student_006", "email": "francesco.gallo@email.it", "name": "Francesco Gallo", "role": "studente", "instrument": "percussioni", "status": "attivo", "phone": "+39 340 6666666", "picture": None, "created_at": datetime.now(timezone.utc)},
     ]
     
     # Sample courses
