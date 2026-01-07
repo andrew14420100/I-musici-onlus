@@ -14,11 +14,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { paymentsApi, usersApi } from '../../src/services/api';
-import { Payment, User, UserRole, PaymentStatus, PaymentType } from '../../src/types';
-import { PaymentCard } from '../../src/components/PaymentCard';
+import { Payment, User, PaymentStatus, PaymentType } from '../../src/types';
 
 export default function PaymentsScreen() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isInitialized } = useAuth();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,14 +27,14 @@ export default function PaymentsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [formData, setFormData] = useState({
-    user_id: '',
-    payment_type: 'quota_studente' as string,
-    amount: '',
-    description: '',
-    due_date: new Date().toISOString().split('T')[0],
+    utente_id: '',
+    tipo: 'quota_studente' as string,
+    importo: '',
+    descrizione: '',
+    data_scadenza: new Date().toISOString().split('T')[0],
   });
 
-  const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const isAdmin = currentUser?.ruolo === 'amministratore';
 
   const fetchData = async () => {
     try {
@@ -53,8 +52,10 @@ export default function PaymentsScreen() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (currentUser) {
+      fetchData();
+    }
+  }, [currentUser]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -63,77 +64,79 @@ export default function PaymentsScreen() {
   }, []);
 
   const getUserName = (userId: string) => {
-    const user = users.find(u => u.user_id === userId);
-    return user?.name || 'Sconosciuto';
+    const user = users.find(u => u.id === userId);
+    return user ? `${user.nome} ${user.cognome}` : 'Sconosciuto';
   };
 
-  const students = users.filter(u => u.role === UserRole.STUDENT);
-  const teachers = users.filter(u => u.role === UserRole.TEACHER);
+  const students = users.filter(u => u.ruolo === 'allievo');
+  const teachers = users.filter(u => u.ruolo === 'insegnante');
 
   // Filter payments
   const filteredPayments = payments.filter(p => {
-    const matchesTab = p.payment_type === activeTab;
-    const matchesStatus = statusFilter === '' || p.status === statusFilter;
+    const matchesTab = p.tipo === activeTab;
+    const matchesStatus = statusFilter === '' || p.stato === statusFilter;
     return matchesTab && matchesStatus;
   });
 
   // Stats
   const totalPending = filteredPayments
-    .filter(p => p.status !== PaymentStatus.PAID)
-    .reduce((sum, p) => sum + p.amount, 0);
+    .filter(p => p.stato !== PaymentStatus.PAID)
+    .reduce((sum, p) => sum + p.importo, 0);
   const totalPaid = filteredPayments
-    .filter(p => p.status === PaymentStatus.PAID)
-    .reduce((sum, p) => sum + p.amount, 0);
+    .filter(p => p.stato === PaymentStatus.PAID)
+    .reduce((sum, p) => sum + p.importo, 0);
 
   const openModal = (payment?: Payment) => {
     if (payment) {
       setEditingPayment(payment);
       setFormData({
-        user_id: payment.user_id,
-        payment_type: payment.payment_type,
-        amount: payment.amount.toString(),
-        description: payment.description,
-        due_date: payment.due_date.split('T')[0],
+        utente_id: payment.utente_id,
+        tipo: payment.tipo,
+        importo: payment.importo.toString(),
+        descrizione: payment.descrizione,
+        data_scadenza: payment.data_scadenza.split('T')[0],
       });
     } else {
       setEditingPayment(null);
       const defaultUsers = activeTab === 'quota_studente' ? students : teachers;
       setFormData({
-        user_id: defaultUsers[0]?.user_id || '',
-        payment_type: activeTab,
-        amount: '',
-        description: '',
-        due_date: new Date().toISOString().split('T')[0],
+        utente_id: defaultUsers[0]?.id || '',
+        tipo: activeTab,
+        importo: '',
+        descrizione: '',
+        data_scadenza: new Date().toISOString().split('T')[0],
       });
     }
     setModalVisible(true);
   };
 
   const handleSave = async () => {
-    if (!formData.user_id || !formData.amount || !formData.description) {
+    if (!formData.utente_id || !formData.importo || !formData.descrizione) {
       Alert.alert('Errore', 'Tutti i campi sono obbligatori');
       return;
     }
     try {
       if (editingPayment) {
-        await paymentsApi.update(editingPayment.payment_id, {
-          amount: parseFloat(formData.amount),
-          description: formData.description,
-          due_date: new Date(formData.due_date).toISOString(),
+        await paymentsApi.update(editingPayment.id, {
+          importo: parseFloat(formData.importo),
+          descrizione: formData.descrizione,
+          data_scadenza: formData.data_scadenza,
         });
+        Alert.alert('Successo', 'Pagamento aggiornato');
       } else {
         await paymentsApi.create({
-          user_id: formData.user_id,
-          payment_type: formData.payment_type,
-          amount: parseFloat(formData.amount),
-          description: formData.description,
-          due_date: new Date(formData.due_date).toISOString(),
+          utente_id: formData.utente_id,
+          tipo: formData.tipo,
+          importo: parseFloat(formData.importo),
+          descrizione: formData.descrizione,
+          data_scadenza: formData.data_scadenza,
         });
+        Alert.alert('Successo', 'Pagamento creato');
       }
       setModalVisible(false);
       fetchData();
     } catch (error: any) {
-      Alert.alert('Errore', error.response?.data?.detail || 'Si \u00e8 verificato un errore');
+      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
     }
   };
 
@@ -147,10 +150,11 @@ export default function PaymentsScreen() {
           text: 'Conferma', 
           onPress: async () => {
             try {
-              await paymentsApi.update(paymentId, { status: PaymentStatus.PAID });
+              await paymentsApi.update(paymentId, { stato: PaymentStatus.PAID });
+              Alert.alert('Successo', 'Pagamento segnato come pagato');
               fetchData();
             } catch (error: any) {
-              Alert.alert('Errore', error.response?.data?.detail || 'Si \u00e8 verificato un errore');
+              Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
             }
           }
         },
@@ -158,7 +162,48 @@ export default function PaymentsScreen() {
     );
   };
 
-  if (loading) {
+  const handleDelete = async (paymentId: string) => {
+    Alert.alert(
+      'Conferma eliminazione',
+      'Sei sicuro di voler eliminare questo pagamento?',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { 
+          text: 'Elimina', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await paymentsApi.delete(paymentId);
+              Alert.alert('Successo', 'Pagamento eliminato');
+              fetchData();
+            } catch (error: any) {
+              Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  const getStatusColor = (stato: string) => {
+    switch (stato) {
+      case 'pagato': return { bg: '#D1FAE5', text: '#065F46' };
+      case 'in_attesa': return { bg: '#FEF3C7', text: '#92400E' };
+      case 'scaduto': return { bg: '#FEE2E2', text: '#DC2626' };
+      default: return { bg: '#E5E7EB', text: '#666' };
+    }
+  };
+
+  const getStatusLabel = (stato: string) => {
+    switch (stato) {
+      case 'pagato': return 'Pagato';
+      case 'in_attesa': return 'In Attesa';
+      case 'scaduto': return 'Scaduto';
+      default: return stato;
+    }
+  };
+
+  if (!isInitialized || loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4A90D9" />
@@ -168,6 +213,11 @@ export default function PaymentsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Pagamenti</Text>
+      </View>
+
       {/* Admin only: Create button and tabs */}
       {isAdmin && (
         <>
@@ -260,24 +310,67 @@ export default function PaymentsScreen() {
       >
         {filteredPayments.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="card-outline" size={48} color="#ccc" />
+            <Ionicons name="wallet-outline" size={48} color="#ccc" />
             <Text style={styles.emptyText}>Nessun pagamento trovato</Text>
           </View>
         ) : (
-          filteredPayments.map(payment => (
-            <PaymentCard
-              key={payment.payment_id}
-              payment={payment}
-              userName={isAdmin ? getUserName(payment.user_id) : undefined}
-              onEdit={isAdmin ? () => openModal(payment) : undefined}
-              onMarkPaid={isAdmin ? () => handleMarkPaid(payment.payment_id) : undefined}
-            />
-          ))
+          filteredPayments.map(payment => {
+            const statusColors = getStatusColor(payment.stato);
+            return (
+              <View key={payment.id} style={styles.paymentCard}>
+                <View style={styles.paymentHeader}>
+                  <View style={styles.paymentInfo}>
+                    <Text style={styles.paymentUser}>{getUserName(payment.utente_id)}</Text>
+                    <Text style={styles.paymentDesc}>{payment.descrizione}</Text>
+                    <Text style={styles.paymentDate}>
+                      Scadenza: {new Date(payment.data_scadenza).toLocaleDateString('it-IT')}
+                    </Text>
+                  </View>
+                  <View style={styles.paymentRight}>
+                    <Text style={styles.paymentAmount}>€{payment.importo.toFixed(2)}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
+                      <Text style={[styles.statusText, { color: statusColors.text }]}>
+                        {getStatusLabel(payment.stato)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                
+                {isAdmin && (
+                  <View style={styles.paymentActions}>
+                    {payment.stato !== 'pagato' && (
+                      <TouchableOpacity 
+                        style={[styles.actionBtn, { backgroundColor: '#D1FAE5' }]}
+                        onPress={() => handleMarkPaid(payment.id)}
+                      >
+                        <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                        <Text style={[styles.actionBtnText, { color: '#10B981' }]}>Pagato</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity 
+                      style={[styles.actionBtn, { backgroundColor: '#EBF5FF' }]}
+                      onPress={() => openModal(payment)}
+                    >
+                      <Ionicons name="pencil" size={16} color="#4A90D9" />
+                      <Text style={[styles.actionBtnText, { color: '#4A90D9' }]}>Modifica</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.actionBtn, { backgroundColor: '#FEE2E2' }]}
+                      onPress={() => handleDelete(payment.id)}
+                    >
+                      <Ionicons name="trash" size={16} color="#EF4444" />
+                      <Text style={[styles.actionBtnText, { color: '#EF4444' }]}>Elimina</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            );
+          })
         )}
         <View style={{ height: 20 }} />
       </ScrollView>
 
-      {/* Create/Edit Modal */}
+      {/* Modal Create/Edit */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -288,34 +381,33 @@ export default function PaymentsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {editingPayment ? 'Modifica Pagamento' : 
-                  activeTab === 'quota_studente' ? 'Nuova Quota' : 'Nuovo Compenso'}
+                {editingPayment ? 'Modifica Pagamento' : 'Nuovo Pagamento'}
               </Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.formScroll}>
               {!editingPayment && (
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>
-                    {activeTab === 'quota_studente' ? 'Allievo *' : 'Insegnante *'}
-                  </Text>
+                  <Text style={styles.label}>Utente *</Text>
                   <View style={styles.pickerContainer}>
                     {(activeTab === 'quota_studente' ? students : teachers).map(user => (
                       <TouchableOpacity
-                        key={user.user_id}
+                        key={user.id}
                         style={[
                           styles.pickerOption,
-                          formData.user_id === user.user_id && styles.pickerOptionSelected
+                          formData.utente_id === user.id && styles.pickerOptionSelected
                         ]}
-                        onPress={() => setFormData({ ...formData, user_id: user.user_id })}
+                        onPress={() => setFormData({ ...formData, utente_id: user.id })}
                       >
                         <Text style={[
                           styles.pickerOptionText,
-                          formData.user_id === user.user_id && styles.pickerOptionTextSelected
-                        ]}>{user.name}</Text>
+                          formData.utente_id === user.id && styles.pickerOptionTextSelected
+                        ]}>
+                          {user.nome} {user.cognome}
+                        </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -326,9 +418,9 @@ export default function PaymentsScreen() {
                 <Text style={styles.label}>Importo (€) *</Text>
                 <TextInput
                   style={styles.input}
-                  value={formData.amount}
-                  onChangeText={(text) => setFormData({ ...formData, amount: text })}
-                  placeholder="es. 150.00"
+                  value={formData.importo}
+                  onChangeText={(text) => setFormData({ ...formData, importo: text.replace(/[^0-9.]/g, '') })}
+                  placeholder="150.00"
                   keyboardType="decimal-pad"
                 />
               </View>
@@ -336,12 +428,10 @@ export default function PaymentsScreen() {
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Descrizione *</Text>
                 <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={formData.description}
-                  onChangeText={(text) => setFormData({ ...formData, description: text })}
-                  placeholder="es. Quota mensile Luglio 2025"
-                  multiline
-                  numberOfLines={2}
+                  style={styles.input}
+                  value={formData.descrizione}
+                  onChangeText={(text) => setFormData({ ...formData, descrizione: text })}
+                  placeholder="Es: Quota mensile Gennaio 2025"
                 />
               </View>
 
@@ -349,21 +439,38 @@ export default function PaymentsScreen() {
                 <Text style={styles.label}>Data Scadenza *</Text>
                 <TextInput
                   style={styles.input}
-                  value={formData.due_date}
-                  onChangeText={(text) => setFormData({ ...formData, due_date: text })}
+                  value={formData.data_scadenza}
+                  onChangeText={(text) => setFormData({ ...formData, data_scadenza: text })}
                   placeholder="YYYY-MM-DD"
                 />
               </View>
 
+              {editingPayment && (
+                <View style={styles.infoBox}>
+                  <Ionicons name="information-circle" size={18} color="#4A90D9" />
+                  <Text style={styles.infoBoxText}>
+                    Utente: {getUserName(editingPayment.utente_id)}
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
               <TouchableOpacity 
-                style={styles.saveButton} 
+                style={styles.cancelButton}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.saveButton}
                 onPress={handleSave}
               >
                 <Text style={styles.saveButtonText}>
-                  {editingPayment ? 'Salva Modifiche' : 'Crea Pagamento'}
+                  {editingPayment ? 'Salva' : 'Crea'}
                 </Text>
               </TouchableOpacity>
-            </ScrollView>
+            </View>
           </View>
         </View>
       </Modal>
@@ -380,47 +487,56 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    backgroundColor: '#4A90D9',
+    paddingTop: 50,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   actionsBar: {
-    flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   actionButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#4A90D9',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     gap: 6,
   },
   actionButtonText: {
     color: '#fff',
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 14,
   },
   tabsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
+    marginHorizontal: 12,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 4,
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#4A90D9',
+    backgroundColor: '#fff',
   },
   tabText: {
     fontSize: 14,
     color: '#666',
+    fontWeight: '500',
   },
   activeTabText: {
     color: '#4A90D9',
@@ -429,37 +545,37 @@ const styles = StyleSheet.create({
   summaryContainer: {
     flexDirection: 'row',
     padding: 12,
-    gap: 12,
+    gap: 10,
   },
   summaryCard: {
     flex: 1,
+    padding: 16,
     borderRadius: 12,
-    padding: 14,
     alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
+    marginBottom: 4,
   },
   summaryValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
-    marginTop: 4,
   },
   filterContainer: {
     paddingHorizontal: 12,
-    paddingBottom: 8,
+    marginBottom: 8,
   },
   filterLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
     marginBottom: 8,
   },
   filterChip: {
     paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#e0e0e0',
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#E5E7EB',
     marginRight: 8,
   },
   filterChipActive: {
@@ -478,12 +594,80 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#999',
     marginTop: 12,
+  },
+  paymentCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  paymentInfo: {
+    flex: 1,
+  },
+  paymentUser: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  paymentDesc: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  paymentDate: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+  },
+  paymentRight: {
+    alignItems: 'flex-end',
+  },
+  paymentAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  paymentActions: {
+    flexDirection: 'row',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    gap: 8,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
@@ -494,19 +678,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
+  },
+  formScroll: {
+    padding: 16,
+    maxHeight: 400,
   },
   formGroup: {
     marginBottom: 16,
@@ -515,19 +704,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   input: {
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 15,
-  },
-  textArea: {
-    height: 60,
-    textAlignVertical: 'top',
   },
   pickerContainer: {
     flexDirection: 'row',
@@ -535,32 +721,68 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pickerOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   pickerOptionSelected: {
     backgroundColor: '#4A90D9',
+    borderColor: '#4A90D9',
   },
   pickerOptionText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#333',
   },
   pickerOptionTextSelected: {
     color: '#fff',
+    fontWeight: '500',
   },
-  saveButton: {
-    backgroundColor: '#4A90D9',
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBF5FF',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  infoBoxText: {
+    fontSize: 13,
+    color: '#4A90D9',
+    marginLeft: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  cancelButton: {
+    flex: 1,
     paddingVertical: 14,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 20,
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
+  saveButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#4A90D9',
+    alignItems: 'center',
   },
   saveButtonText: {
+    fontSize: 15,
     color: '#fff',
-    fontSize: 16,
     fontWeight: '600',
   },
 });
