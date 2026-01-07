@@ -147,8 +147,8 @@ export default function DashboardScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statHalf}>
                 <StatCard 
-                  title="Studenti Attivi" 
-                  value={stats.studenti_attivi} 
+                  title="Allievi Attivi" 
+                  value={stats.allievi_attivi} 
                   icon="people" 
                   color="#4A90D9" 
                 />
@@ -166,17 +166,17 @@ export default function DashboardScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statHalf}>
                 <StatCard 
-                  title="Corsi Attivi" 
-                  value={stats.corsi_attivi} 
-                  icon="book" 
+                  title="Presenze Oggi" 
+                  value={stats.presenze_oggi} 
+                  icon="calendar-outline" 
                   color="#8B5CF6" 
                 />
               </View>
               <View style={styles.statHalf}>
                 <StatCard 
-                  title="Lezioni Settimana" 
-                  value={stats.lezioni_settimana} 
-                  icon="calendar" 
+                  title="Notifiche Attive" 
+                  value={stats.notifiche_attive} 
+                  icon="notifications" 
                   color="#F59E0B" 
                 />
               </View>
@@ -189,13 +189,8 @@ export default function DashboardScreen() {
           <View style={styles.paymentsRow}>
             <View style={[styles.paymentCard, { backgroundColor: '#FEF2F2' }]}>
               <Ionicons name="alert-circle" size={24} color="#EF4444" />
-              <Text style={styles.paymentValue}>{stats.pagamenti_studenti_non_pagati}</Text>
-              <Text style={styles.paymentLabel}>Quote Studenti{"\n"}Non Pagate</Text>
-            </View>
-            <View style={[styles.paymentCard, { backgroundColor: '#FEF3C7' }]}>
-              <Ionicons name="time" size={24} color="#F59E0B" />
-              <Text style={styles.paymentValue}>{stats.compensi_insegnanti_non_pagati}</Text>
-              <Text style={styles.paymentLabel}>Compensi{"\n"}In Attesa</Text>
+              <Text style={styles.paymentValue}>{stats.pagamenti_non_pagati}</Text>
+              <Text style={styles.paymentLabel}>Pagamenti{"\n"}In Sospeso</Text>
             </View>
             <View style={[styles.paymentCard, { backgroundColor: '#EBF5FF' }]}>
               <Ionicons name="notifications" size={24} color="#4A90D9" />
@@ -203,30 +198,6 @@ export default function DashboardScreen() {
               <Text style={styles.paymentLabel}>Notifiche{"\n"}Attive</Text>
             </View>
           </View>
-
-          {/* Today's Lessons */}
-          {stats.lezioni_oggi.length > 0 && (
-            <>
-              <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Lezioni di Oggi</Text>
-              <View style={styles.todayLessons}>
-                {stats.lezioni_oggi.slice(0, 5).map((lesson, index) => (
-                  <View key={lesson.lesson_id} style={styles.lessonItem}>
-                    <View style={styles.lessonTime}>
-                      <Ionicons name="time" size={14} color="#4A90D9" />
-                      <Text style={styles.lessonTimeText}>
-                        {format(new Date(lesson.date_time), 'HH:mm')}
-                      </Text>
-                    </View>
-                    <View style={styles.lessonInfo}>
-                      <Text style={styles.lessonDuration}>
-                        {lesson.duration_minutes} min
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
         </View>
       )}
 
