@@ -150,11 +150,14 @@ backend:
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Lessons with filters by course, teacher, student, date"
+      - working: true
+        agent: "testing"
+        comment: "All lesson endpoints tested successfully: GET /lessons (with filters by status, course_id, teacher_id, student_id), POST /lessons, GET /lessons/{id}, PUT /lessons/{id}, DELETE /lessons/{id}. All CRUD operations working correctly with proper authorization."
 
   - task: "Payments CRUD API"
     implemented: true
