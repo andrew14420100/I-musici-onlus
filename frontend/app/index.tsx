@@ -6,18 +6,35 @@ import {
   TouchableOpacity, 
   ActivityIndicator,
   ScrollView,
-  Modal
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/contexts/AuthContext';
 import { router } from 'expo-router';
-import { INSTRUMENTS } from '../src/types';
+
+type LoginMode = 'select' | 'user' | 'admin_pin' | 'admin_google';
 
 export default function LandingPage() {
-  const { user, isLoading, isAuthenticated, login, setSelectedRole, setSelectedInstrument } = useAuth();
-  const [showInstrumentModal, setShowInstrumentModal] = useState(false);
-  const [pendingRole, setPendingRole] = useState<string | null>(null);
+  const { 
+    user, 
+    isLoading, 
+    isAuthenticated, 
+    pendingAdminEmail,
+    loginWithCredentials, 
+    loginAdminPin, 
+    loginAdminGoogle 
+  } = useAuth();
+  
+  const [loginMode, setLoginMode] = useState<LoginMode>('select');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -25,25 +42,49 @@ export default function LandingPage() {
     }
   }, [isAuthenticated, user]);
 
-  const handleRoleSelect = (role: string) => {
-    if (role === 'admin') {
-      // Admin doesn't need instrument selection
-      setSelectedRole(role);
-      login(role);
-    } else {
-      // Students and teachers need to select instrument
-      setPendingRole(role);
-      setShowInstrumentModal(true);
+  useEffect(() => {
+    // If there's a pending admin email, go to Google step
+    if (pendingAdminEmail) {
+      setLoginMode('admin_google');
+    }
+  }, [pendingAdminEmail]);
+
+  const handleUserLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Errore', 'Inserisci email e password');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    const result = await loginWithCredentials(email, password);
+    setIsSubmitting(false);
+    
+    if (!result.success) {
+      Alert.alert('Errore', result.error || 'Login fallito');
     }
   };
 
-  const handleInstrumentSelect = (instrument: string) => {
-    setShowInstrumentModal(false);
-    if (pendingRole) {
-      setSelectedRole(pendingRole);
-      setSelectedInstrument(instrument);
-      login(pendingRole, instrument);
+  const handleAdminPinSubmit = async () => {
+    if (!email || !pin) {
+      Alert.alert('Errore', 'Inserisci email e PIN');
+      return;
     }
+    
+    setIsSubmitting(true);
+    const result = await loginAdminPin(email, pin);
+    setIsSubmitting(false);
+    
+    if (result.success && result.needsGoogle) {
+      setLoginMode('admin_google');
+    } else if (!result.success) {
+      Alert.alert('Errore', result.error || 'PIN non valido');
+    }
+  };
+
+  const handleAdminGoogleLogin = async () => {
+    setIsSubmitting(true);
+    await loginAdminGoogle();
+    setIsSubmitting(false);
   };
 
   if (isLoading) {
@@ -55,126 +96,313 @@ export default function LandingPage() {
     );
   }
 
+  const renderSelectMode = () => (
+    <>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.logoContainer}>
+          <Ionicons name="musical-notes" size={44} color="#4A90D9" />
+        </View>
+        <Text style={styles.title}>Accademia de</Text>
+        <Text style={styles.titleHighlight}>"I Musici"</Text>
+      </View>
+
+      {/* Login Options */}
+      <View style={styles.loginSection}>
+        <Text style={styles.loginTitle}>Accedi come:</Text>
+        
+        {/* Admin Login */}
+        <TouchableOpacity 
+          style={[styles.roleButton, styles.adminButton]} 
+          onPress={() => setLoginMode('admin_pin')}
+        >
+          <View style={styles.roleButtonContent}>
+            <View style={[styles.roleIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <Ionicons name="shield-checkmark" size={24} color="#fff" />
+            </View>
+            <View style={styles.roleText}>
+              <Text style={styles.roleTitle}>Amministratore</Text>
+              <Text style={styles.roleDesc}>Accesso con PIN + Google</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
+        
+        {/* Teacher Login */}
+        <TouchableOpacity 
+          style={[styles.roleButton, styles.teacherButton]} 
+          onPress={() => setLoginMode('user')}
+        >
+          <View style={styles.roleButtonContent}>
+            <View style={[styles.roleIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <Ionicons name="school" size={24} color="#fff" />
+            </View>
+            <View style={styles.roleText}>
+              <Text style={styles.roleTitle}>Insegnante</Text>
+              <Text style={styles.roleDesc}>Accesso con email e password</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
+        
+        {/* Student Login */}
+        <TouchableOpacity 
+          style={[styles.roleButton, styles.studentButton]} 
+          onPress={() => setLoginMode('user')}
+        >
+          <View style={styles.roleButtonContent}>
+            <View style={[styles.roleIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <Ionicons name="person" size={24} color="#fff" />
+            </View>
+            <View style={styles.roleText}>
+              <Text style={styles.roleTitle}>Allievo</Text>
+              <Text style={styles.roleDesc}>Accesso con email e password</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
+        
+        <View style={styles.infoBox}>
+          <Ionicons name="information-circle" size={20} color="#666" />
+          <Text style={styles.infoText}>
+            Le credenziali vengono fornite dall'amministrazione.{'\n'}
+            Non è possibile recuperare la password autonomamente.
+          </Text>
+        </View>
+      </View>
+    </>
+  );
+
+  const renderUserLogin = () => (
+    <>
+      <TouchableOpacity style={styles.backButton} onPress={() => setLoginMode('select')}>
+        <Ionicons name="arrow-back" size={24} color="#4A90D9" />
+        <Text style={styles.backText}>Indietro</Text>
+      </TouchableOpacity>
+
+      <View style={styles.formHeader}>
+        <View style={[styles.formIcon, { backgroundColor: '#10B981' }]}>
+          <Ionicons name="person" size={32} color="#fff" />
+        </View>
+        <Text style={styles.formTitle}>Accesso Allievo/Insegnante</Text>
+        <Text style={styles.formSubtitle}>
+          Inserisci le credenziali fornite dall'amministrazione
+        </Text>
+      </View>
+
+      <View style={styles.form}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Email</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons name="mail" size={20} color="#999" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="email@esempio.it"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+            />
+          </View>
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Password</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons name="lock-closed" size={20} color="#999" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Password"
+              secureTextEntry={!showPassword}
+              autoComplete="password"
+            />
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color="#999" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]} 
+          onPress={handleUserLogin}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.submitButtonText}>Accedi</Text>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.warningBox}>
+          <Ionicons name="warning" size={18} color="#F59E0B" />
+          <Text style={styles.warningText}>
+            In caso di problemi con le credenziali, contatta l'amministrazione.
+          </Text>
+        </View>
+      </View>
+    </>
+  );
+
+  const renderAdminPinLogin = () => (
+    <>
+      <TouchableOpacity style={styles.backButton} onPress={() => setLoginMode('select')}>
+        <Ionicons name="arrow-back" size={24} color="#4A90D9" />
+        <Text style={styles.backText}>Indietro</Text>
+      </TouchableOpacity>
+
+      <View style={styles.formHeader}>
+        <View style={[styles.formIcon, { backgroundColor: '#4A90D9' }]}>
+          <Ionicons name="shield-checkmark" size={32} color="#fff" />
+        </View>
+        <Text style={styles.formTitle}>Accesso Amministratore</Text>
+        <Text style={styles.formSubtitle}>
+          Fase 1 di 2: Verifica PIN
+        </Text>
+      </View>
+
+      <View style={styles.form}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Email Amministratore</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons name="mail" size={20} color="#999" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="admin@musici.it"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>PIN</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons name="keypad" size={20} color="#999" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={pin}
+              onChangeText={setPin}
+              placeholder="Inserisci PIN"
+              secureTextEntry
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.submitButton, { backgroundColor: '#4A90D9' }, isSubmitting && styles.submitButtonDisabled]} 
+          onPress={handleAdminPinSubmit}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Text style={styles.submitButtonText}>Verifica PIN</Text>
+              <Ionicons name="arrow-forward" size={20} color="#fff" style={{ marginLeft: 8 }} />
+            </>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.stepsIndicator}>
+          <View style={[styles.step, styles.stepActive]}>
+            <Text style={styles.stepNumber}>1</Text>
+            <Text style={styles.stepLabel}>PIN</Text>
+          </View>
+          <View style={styles.stepLine} />
+          <View style={styles.step}>
+            <Text style={styles.stepNumber}>2</Text>
+            <Text style={styles.stepLabel}>Google</Text>
+          </View>
+        </View>
+      </View>
+    </>
+  );
+
+  const renderAdminGoogleLogin = () => (
+    <>
+      <TouchableOpacity style={styles.backButton} onPress={() => setLoginMode('admin_pin')}>
+        <Ionicons name="arrow-back" size={24} color="#4A90D9" />
+        <Text style={styles.backText}>Indietro</Text>
+      </TouchableOpacity>
+
+      <View style={styles.formHeader}>
+        <View style={[styles.formIcon, { backgroundColor: '#4A90D9' }]}>
+          <Ionicons name="shield-checkmark" size={32} color="#fff" />
+        </View>
+        <Text style={styles.formTitle}>Accesso Amministratore</Text>
+        <Text style={styles.formSubtitle}>
+          Fase 2 di 2: Verifica Google
+        </Text>
+      </View>
+
+      <View style={styles.form}>
+        <View style={styles.successBox}>
+          <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+          <Text style={styles.successText}>
+            PIN verificato correttamente!{'\n'}
+            Procedi con l'autenticazione Google.
+          </Text>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.googleButton, isSubmitting && styles.submitButtonDisabled]} 
+          onPress={handleAdminGoogleLogin}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="logo-google" size={22} color="#fff" />
+              <Text style={styles.googleButtonText}>Continua con Google</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.stepsIndicator}>
+          <View style={[styles.step, styles.stepCompleted]}>
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={styles.stepLabel}>PIN</Text>
+          </View>
+          <View style={[styles.stepLine, styles.stepLineActive]} />
+          <View style={[styles.step, styles.stepActive]}>
+            <Text style={styles.stepNumber}>2</Text>
+            <Text style={styles.stepLabel}>Google</Text>
+          </View>
+        </View>
+      </View>
+    </>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <Ionicons name="musical-notes" size={44} color="#4A90D9" />
-          </View>
-          <Text style={styles.title}>Accademia de</Text>
-          <Text style={styles.titleHighlight}>"I Musici"</Text>
-        </View>
-
-        {/* Login Section with Role Selection */}
-        <View style={styles.loginSection}>
-          <Text style={styles.loginTitle}>Seleziona il tuo ruolo:</Text>
-          
-          {/* Admin Login */}
-          <TouchableOpacity 
-            style={[styles.roleLoginButton, styles.adminButton]} 
-            onPress={() => handleRoleSelect('admin')}
-          >
-            <View style={styles.roleLoginContent}>
-              <View style={[styles.roleLoginIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="shield-checkmark" size={24} color="#fff" />
-              </View>
-              <View style={styles.roleLoginText}>
-                <Text style={styles.roleLoginTitle}>Amministratore</Text>
-                <Text style={styles.roleLoginDesc}>Gestione completa dell'accademia</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
-          </TouchableOpacity>
-          
-          {/* Teacher Login */}
-          <TouchableOpacity 
-            style={[styles.roleLoginButton, styles.teacherButton]} 
-            onPress={() => handleRoleSelect('insegnante')}
-          >
-            <View style={styles.roleLoginContent}>
-              <View style={[styles.roleLoginIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="school" size={24} color="#fff" />
-              </View>
-              <View style={styles.roleLoginText}>
-                <Text style={styles.roleLoginTitle}>Insegnante</Text>
-                <Text style={styles.roleLoginDesc}>Gestisci lezioni, presenze e compiti</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
-          </TouchableOpacity>
-          
-          {/* Student Login */}
-          <TouchableOpacity 
-            style={[styles.roleLoginButton, styles.studentButton]} 
-            onPress={() => handleRoleSelect('studente')}
-          >
-            <View style={styles.roleLoginContent}>
-              <View style={[styles.roleLoginIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="person" size={24} color="#fff" />
-              </View>
-              <View style={styles.roleLoginText}>
-                <Text style={styles.roleLoginTitle}>Studente</Text>
-                <Text style={styles.roleLoginDesc}>Visualizza presenze, compiti e pagamenti</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
-          </TouchableOpacity>
-          
-          <View style={styles.googleHint}>
-            <Ionicons name="logo-google" size={16} color="#666" />
-            <Text style={styles.loginHint}>
-              Accedi con il tuo account Google
-            </Text>
-          </View>
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>© 2025 Accademia de "I Musici"</Text>
-        </View>
-      </ScrollView>
-
-      {/* Instrument Selection Modal */}
-      <Modal
-        visible={showInstrumentModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowInstrumentModal(false)}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Seleziona il tuo corso
-              </Text>
-              <TouchableOpacity onPress={() => setShowInstrumentModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            
-            <Text style={styles.modalSubtitle}>
-              {pendingRole === 'insegnante' ? 'Quale strumento insegni?' : 'Quale strumento studi?'}
-            </Text>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {loginMode === 'select' && renderSelectMode()}
+          {loginMode === 'user' && renderUserLogin()}
+          {loginMode === 'admin_pin' && renderAdminPinLogin()}
+          {loginMode === 'admin_google' && renderAdminGoogleLogin()}
 
-            <View style={styles.instrumentsGrid}>
-              {INSTRUMENTS.map((inst) => (
-                <TouchableOpacity
-                  key={inst.value}
-                  style={styles.instrumentCard}
-                  onPress={() => handleInstrumentSelect(inst.value)}
-                >
-                  <View style={styles.instrumentIconContainer}>
-                    <Ionicons name={inst.icon as any} size={32} color="#4A90D9" />
-                  </View>
-                  <Text style={styles.instrumentLabel}>{inst.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>© 2025 Accademia de "I Musici"</Text>
           </View>
-        </View>
-      </Modal>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -235,7 +463,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  roleLoginButton: {
+  roleButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -247,18 +475,18 @@ const styles = StyleSheet.create({
   adminButton: {
     backgroundColor: '#4A90D9',
   },
-  studentButton: {
-    backgroundColor: '#10B981',
-  },
   teacherButton: {
     backgroundColor: '#F59E0B',
   },
-  roleLoginContent: {
+  studentButton: {
+    backgroundColor: '#10B981',
+  },
+  roleButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  roleLoginIcon: {
+  roleIcon: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -266,29 +494,199 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 14,
   },
-  roleLoginText: {
+  roleText: {
     flex: 1,
   },
-  roleLoginTitle: {
+  roleTitle: {
     fontSize: 17,
     fontWeight: '600',
     color: '#fff',
   },
-  roleLoginDesc: {
+  roleDesc: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
     marginTop: 2,
   },
-  googleHint: {
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F1F5F9',
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 16,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 10,
+    lineHeight: 18,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  backText: {
+    fontSize: 16,
+    color: '#4A90D9',
+    marginLeft: 8,
+  },
+  formHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  formIcon: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  formTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#333',
+  },
+  formSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  form: {
+    flex: 1,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 8,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#333',
+  },
+  submitButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  googleButton: {
+    backgroundColor: '#4285F4',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  googleButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
+    marginLeft: 10,
+  },
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 20,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400E',
+    marginLeft: 10,
+    lineHeight: 18,
+  },
+  successBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#D1FAE5',
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  successText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#065F46',
+    marginLeft: 10,
+    lineHeight: 20,
+  },
+  stepsIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 30,
   },
-  loginHint: {
-    fontSize: 13,
+  step: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepActive: {
+    backgroundColor: '#4A90D9',
+  },
+  stepCompleted: {
+    backgroundColor: '#10B981',
+  },
+  stepNumber: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  stepLabel: {
+    fontSize: 11,
     color: '#666',
-    marginLeft: 8,
+    marginTop: 4,
+    position: 'absolute',
+    bottom: -20,
+  },
+  stepLine: {
+    width: 60,
+    height: 3,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 8,
+  },
+  stepLineActive: {
+    backgroundColor: '#10B981',
   },
   footer: {
     marginTop: 30,
@@ -297,63 +695,5 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: '#999',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 24,
-  },
-  instrumentsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  instrumentCard: {
-    width: '48%',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-  },
-  instrumentIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#EBF5FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  instrumentLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
   },
 });
