@@ -135,11 +135,14 @@ backend:
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Course management including teacher/student assignment"
+      - working: true
+        agent: "testing"
+        comment: "All course endpoints tested successfully: GET /courses (with filters), POST /courses, GET /courses/{id}, PUT /courses/{id}, teacher assignment/removal, student enrollment/removal. All CRUD operations working correctly."
 
   - task: "Lessons CRUD API"
     implemented: true
