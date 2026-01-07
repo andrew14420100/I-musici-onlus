@@ -231,7 +231,7 @@ export default function DashboardScreen() {
       )}
 
       {/* Non-Admin Welcome */}
-      {user?.role !== UserRole.ADMIN && (
+      {user?.ruolo !== 'amministratore' && (
         <View style={styles.nonAdminSection}>
           <View style={styles.infoCard}>
             <Ionicons name="information-circle" size={32} color="#4A90D9" />
