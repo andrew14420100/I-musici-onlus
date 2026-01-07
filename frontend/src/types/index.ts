@@ -31,6 +31,23 @@ export enum PaymentType {
   TEACHER_COMPENSATION = 'compenso_insegnante'
 }
 
+export enum AttendanceStatus {
+  PRESENT = 'presente',
+  ABSENT = 'assente',
+  JUSTIFIED = 'giustificato'
+}
+
+export const INSTRUMENTS = [
+  { value: 'pianoforte', label: 'Pianoforte', icon: 'musical-notes' },
+  { value: 'canto', label: 'Canto', icon: 'mic' },
+  { value: 'percussioni', label: 'Percussioni', icon: 'disc' },
+  { value: 'violino', label: 'Violino', icon: 'musical-note' },
+  { value: 'chitarra', label: 'Chitarra', icon: 'musical-notes' },
+  { value: 'chitarra_elettrica', label: 'Chitarra Elettrica', icon: 'flash' },
+] as const;
+
+export type InstrumentType = typeof INSTRUMENTS[number]['value'];
+
 export interface User {
   user_id: string;
   email: string;
@@ -39,6 +56,7 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   phone?: string;
+  instrument?: string;
   created_at: string;
 }
 
@@ -84,6 +102,30 @@ export interface Notification {
   notification_type: string;
   recipient_ids: string[];
   is_active: boolean;
+  created_at: string;
+}
+
+export interface Attendance {
+  attendance_id: string;
+  lesson_id?: string;
+  student_id: string;
+  teacher_id: string;
+  instrument: string;
+  date: string;
+  status: AttendanceStatus;
+  notes?: string;
+  created_at: string;
+}
+
+export interface Assignment {
+  assignment_id: string;
+  teacher_id: string;
+  student_id: string;
+  instrument: string;
+  title: string;
+  description: string;
+  due_date: string;
+  completed: boolean;
   created_at: string;
 }
 
