@@ -14,17 +14,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { notificationsApi } from '../../src/services/api';
-import { Notification, UserRole } from '../../src/types';
-import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { Notification } from '../../src/types';
 
 export default function NotificationsScreen() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isInitialized } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [notificationToDelete, setNotificationToDelete] = useState<Notification | null>(null);
   const [editingNotification, setEditingNotification] = useState<Notification | null>(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -32,7 +32,7 @@ export default function NotificationsScreen() {
     notification_type: 'generale',
   });
 
-  const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const isAdmin = currentUser?.ruolo === 'amministratore';
 
   const fetchData = async () => {
     try {
@@ -46,8 +46,10 @@ export default function NotificationsScreen() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, [showInactive]);
+    if (isInitialized) {
+      fetchData();
+    }
+  }, [showInactive, isInitialized]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -88,6 +90,11 @@ export default function NotificationsScreen() {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
   const openModal = (notification?: Notification) => {
     if (notification) {
       setEditingNotification(notification);
@@ -118,18 +125,20 @@ export default function NotificationsScreen() {
           title: formData.title,
           message: formData.message,
         });
+        Alert.alert('Successo', 'Notifica aggiornata');
       } else {
         await notificationsApi.create({
           title: formData.title,
           message: formData.message,
           notification_type: formData.notification_type,
-          recipient_ids: [], // Send to all
+          recipient_ids: [],
         });
+        Alert.alert('Successo', 'Notifica creata');
       }
       setModalVisible(false);
       fetchData();
     } catch (error: any) {
-      Alert.alert('Errore', error.response?.data?.detail || 'Si \u00e8 verificato un errore');
+      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
     }
   };
 
@@ -140,33 +149,29 @@ export default function NotificationsScreen() {
       });
       fetchData();
     } catch (error: any) {
-      Alert.alert('Errore', error.response?.data?.detail || 'Si \u00e8 verificato un errore');
+      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
     }
   };
 
-  const handleDelete = async (notificationId: string) => {
-    Alert.alert(
-      'Conferma',
-      'Vuoi eliminare questa notifica?',
-      [
-        { text: 'Annulla', style: 'cancel' },
-        { 
-          text: 'Elimina', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await notificationsApi.delete(notificationId);
-              fetchData();
-            } catch (error: any) {
-              Alert.alert('Errore', error.response?.data?.detail || 'Si \u00e8 verificato un errore');
-            }
-          }
-        },
-      ]
-    );
+  const openDeleteModal = (notification: Notification) => {
+    setNotificationToDelete(notification);
+    setDeleteModalVisible(true);
   };
 
-  if (loading) {
+  const confirmDelete = async () => {
+    if (!notificationToDelete) return;
+    try {
+      await notificationsApi.delete(notificationToDelete.notification_id);
+      setDeleteModalVisible(false);
+      setNotificationToDelete(null);
+      Alert.alert('Eliminata!', 'La notifica è stata rimossa');
+      fetchData();
+    } catch (error: any) {
+      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+    }
+  };
+
+  if (!isInitialized || loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4A90D9" />
@@ -252,7 +257,7 @@ export default function NotificationsScreen() {
                     </Text>
                   </View>
                   <Text style={styles.dateText}>
-                    {format(new Date(notification.created_at), 'd MMM yyyy', { locale: it })}
+                    {formatDate(notification.created_at)}
                   </Text>
                 </View>
               </View>
@@ -268,7 +273,7 @@ export default function NotificationsScreen() {
                       color={notification.is_active ? '#F59E0B' : '#10B981'} 
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => handleDelete(notification.notification_id)} style={styles.actionIcon}>
+                  <TouchableOpacity onPress={() => openDeleteModal(notification)} style={styles.actionIcon}>
                     <Ionicons name="trash" size={18} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
@@ -278,6 +283,44 @@ export default function NotificationsScreen() {
         )}
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={deleteModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setDeleteModalVisible(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteIconContainer}>
+              <Ionicons name="megaphone" size={40} color="#EF4444" />
+            </View>
+            <Text style={styles.deleteModalTitle}>Eliminare notifica?</Text>
+            <Text style={styles.deleteModalNotifTitle}>
+              {notificationToDelete?.title}
+            </Text>
+            <Text style={styles.deleteModalMessage}>
+              Questa azione non può essere annullata.
+            </Text>
+            <View style={styles.deleteModalActions}>
+              <TouchableOpacity 
+                style={styles.deleteModalCancel}
+                onPress={() => setDeleteModalVisible(false)}
+              >
+                <Text style={styles.deleteModalCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.deleteModalConfirm}
+                onPress={confirmDelete}
+              >
+                <Ionicons name="trash" size={18} color="#fff" />
+                <Text style={styles.deleteModalConfirmText}>Elimina</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Create/Edit Modal */}
       <Modal
@@ -297,7 +340,7 @@ export default function NotificationsScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.formScroll}>
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Titolo *</Text>
                 <TextInput
@@ -351,16 +394,24 @@ export default function NotificationsScreen() {
                   </View>
                 </View>
               )}
+            </ScrollView>
 
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Annulla</Text>
+              </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.saveButton} 
                 onPress={handleSave}
               >
                 <Text style={styles.saveButtonText}>
-                  {editingNotification ? 'Salva Modifiche' : 'Pubblica Notifica'}
+                  {editingNotification ? 'Salva' : 'Pubblica'}
                 </Text>
               </TouchableOpacity>
-            </ScrollView>
+            </View>
           </View>
         </View>
       </Modal>
@@ -377,33 +428,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F8FAFC',
   },
   actionsBar: {
-    flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   actionButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#4A90D9',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     gap: 6,
   },
   actionButtonText: {
     color: '#fff',
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 14,
   },
   toggleContainer: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
+    paddingVertical: 8,
   },
   toggleButton: {
     flexDirection: 'row',
@@ -417,14 +463,13 @@ const styles = StyleSheet.create({
   listContainer: {
     flex: 1,
     paddingHorizontal: 12,
-    paddingTop: 12,
   },
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#999',
     marginTop: 12,
   },
@@ -434,11 +479,8 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
     flexDirection: 'row',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   inactiveCard: {
     opacity: 0.6,
@@ -510,6 +552,82 @@ const styles = StyleSheet.create({
   actionIcon: {
     padding: 4,
   },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  deleteIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
+  },
+  deleteModalNotifTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4A90D9',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  deleteModalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  deleteModalCancelText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '600',
+  },
+  deleteModalConfirm: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  deleteModalConfirmText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -519,19 +637,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
+  },
+  formScroll: {
+    padding: 16,
+    maxHeight: 400,
   },
   formGroup: {
     marginBottom: 16,
@@ -540,14 +663,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   input: {
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 15,
   },
   textArea: {
@@ -579,17 +703,36 @@ const styles = StyleSheet.create({
   typeOptionTextSelected: {
     color: '#fff',
   },
-  saveButton: {
-    backgroundColor: '#4A90D9',
+  modalActions: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  cancelButton: {
+    flex: 1,
     paddingVertical: 14,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 20,
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
+  saveButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#4A90D9',
+    alignItems: 'center',
   },
   saveButtonText: {
+    fontSize: 15,
     color: '#fff',
-    fontSize: 16,
     fontWeight: '600',
   },
 });

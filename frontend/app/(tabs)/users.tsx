@@ -9,7 +9,8 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
-  Alert
+  Alert,
+  Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -24,6 +25,8 @@ export default function UsersScreen() {
   const [activeTab, setActiveTab] = useState<'allievo' | 'insegnante'>('allievo');
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     nome: '',
@@ -87,7 +90,7 @@ export default function UsersScreen() {
       nome: user.nome,
       cognome: user.cognome,
       email: user.email,
-      password: '', // Password non mostrata in modifica
+      password: '',
       ruolo: user.ruolo,
       note_admin: user.note_admin || '',
     });
@@ -95,7 +98,6 @@ export default function UsersScreen() {
   };
 
   const handleSave = async () => {
-    // Validazione
     if (!formData.nome.trim() || !formData.cognome.trim()) {
       Alert.alert('Errore', 'Nome e cognome sono obbligatori');
       return;
@@ -115,20 +117,17 @@ export default function UsersScreen() {
 
     try {
       if (editingUser) {
-        // Modifica utente esistente
         const updateData: any = {
           nome: formData.nome,
           cognome: formData.cognome,
           note_admin: formData.note_admin || undefined,
         };
-        // Aggiungi password solo se inserita
         if (formData.password.trim()) {
           updateData.password = formData.password;
         }
         await usersApi.update(editingUser.id, updateData);
         Alert.alert('Successo', 'Utente modificato con successo');
       } else {
-        // Crea nuovo utente
         await usersApi.create({
           ruolo: formData.ruolo,
           nome: formData.nome,
@@ -157,30 +156,24 @@ export default function UsersScreen() {
     }
   };
 
-  const handleDelete = async (user: User) => {
-    Alert.alert(
-      'Conferma eliminazione',
-      `Sei sicuro di voler eliminare ${user.nome} ${user.cognome}?`,
-      [
-        { text: 'Annulla', style: 'cancel' },
-        { 
-          text: 'Elimina', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await usersApi.delete(user.id);
-              Alert.alert('Successo', 'Utente eliminato');
-              fetchUsers();
-            } catch (error: any) {
-              Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
-            }
-          }
-        },
-      ]
-    );
+  const openDeleteModal = (user: User) => {
+    setUserToDelete(user);
+    setDeleteModalVisible(true);
   };
 
-  // Loading state
+  const confirmDelete = async () => {
+    if (!userToDelete) return;
+    try {
+      await usersApi.delete(userToDelete.id);
+      setDeleteModalVisible(false);
+      setUserToDelete(null);
+      Alert.alert('Eliminato!', 'L\'utente è stato rimosso con successo');
+      fetchUsers();
+    } catch (error: any) {
+      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+    }
+  };
+
   if (!isInitialized || loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -189,7 +182,6 @@ export default function UsersScreen() {
     );
   }
 
-  // Access control
   if (currentUser?.ruolo !== 'amministratore') {
     return (
       <View style={styles.noAccessContainer}>
@@ -204,11 +196,6 @@ export default function UsersScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Gestione Utenti</Text>
-      </View>
-
       {/* Action Buttons */}
       <View style={styles.actionsBar}>
         <TouchableOpacity 
@@ -313,7 +300,7 @@ export default function UsersScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.userActionBtn}
-                  onPress={() => handleDelete(user)}
+                  onPress={() => openDeleteModal(user)}
                 >
                   <Ionicons name="trash" size={18} color="#EF4444" />
                 </TouchableOpacity>
@@ -323,6 +310,44 @@ export default function UsersScreen() {
         )}
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={deleteModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setDeleteModalVisible(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteIconContainer}>
+              <Ionicons name="warning" size={48} color="#EF4444" />
+            </View>
+            <Text style={styles.deleteModalTitle}>Eliminare questo utente?</Text>
+            <Text style={styles.deleteModalName}>
+              {userToDelete?.nome} {userToDelete?.cognome}
+            </Text>
+            <Text style={styles.deleteModalMessage}>
+              Questa azione è irreversibile. Tutti i dati associati verranno persi.
+            </Text>
+            <View style={styles.deleteModalActions}>
+              <TouchableOpacity 
+                style={styles.deleteModalCancel}
+                onPress={() => setDeleteModalVisible(false)}
+              >
+                <Text style={styles.deleteModalCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.deleteModalConfirm}
+                onPress={confirmDelete}
+              >
+                <Ionicons name="trash" size={18} color="#fff" />
+                <Text style={styles.deleteModalConfirmText}>Elimina</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal Create/Edit */}
       <Modal
@@ -458,17 +483,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     textAlign: 'center',
   },
-  header: {
-    backgroundColor: '#4A90D9',
-    paddingTop: 50,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
   actionsBar: {
     flexDirection: 'row',
     padding: 12,
@@ -597,6 +611,82 @@ const styles = StyleSheet.create({
   },
   userActionBtn: {
     padding: 8,
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  deleteIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
+  },
+  deleteModalName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4A90D9',
+    marginBottom: 12,
+  },
+  deleteModalMessage: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  deleteModalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  deleteModalCancelText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '600',
+  },
+  deleteModalConfirm: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  deleteModalConfirmText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,

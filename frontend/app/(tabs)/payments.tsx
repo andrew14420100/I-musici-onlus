@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { paymentsApi, usersApi } from '../../src/services/api';
-import { Payment, User, PaymentStatus, PaymentType } from '../../src/types';
+import { Payment, User, PaymentStatus } from '../../src/types';
 
 export default function PaymentsScreen() {
   const { user: currentUser, isInitialized } = useAuth();
@@ -25,6 +25,8 @@ export default function PaymentsScreen() {
   const [activeTab, setActiveTab] = useState<'quota_studente' | 'compenso_insegnante'>('quota_studente');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [formData, setFormData] = useState({
     utente_id: '',
@@ -71,14 +73,12 @@ export default function PaymentsScreen() {
   const students = users.filter(u => u.ruolo === 'allievo');
   const teachers = users.filter(u => u.ruolo === 'insegnante');
 
-  // Filter payments
   const filteredPayments = payments.filter(p => {
     const matchesTab = p.tipo === activeTab;
     const matchesStatus = statusFilter === '' || p.stato === statusFilter;
     return matchesTab && matchesStatus;
   });
 
-  // Stats
   const totalPending = filteredPayments
     .filter(p => p.stato !== PaymentStatus.PAID)
     .reduce((sum, p) => sum + p.importo, 0);
@@ -162,27 +162,22 @@ export default function PaymentsScreen() {
     );
   };
 
-  const handleDelete = async (paymentId: string) => {
-    Alert.alert(
-      'Conferma eliminazione',
-      'Sei sicuro di voler eliminare questo pagamento?',
-      [
-        { text: 'Annulla', style: 'cancel' },
-        { 
-          text: 'Elimina', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await paymentsApi.delete(paymentId);
-              Alert.alert('Successo', 'Pagamento eliminato');
-              fetchData();
-            } catch (error: any) {
-              Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
-            }
-          }
-        },
-      ]
-    );
+  const openDeleteModal = (payment: Payment) => {
+    setPaymentToDelete(payment);
+    setDeleteModalVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!paymentToDelete) return;
+    try {
+      await paymentsApi.delete(paymentToDelete.id);
+      setDeleteModalVisible(false);
+      setPaymentToDelete(null);
+      Alert.alert('Eliminato!', 'Il pagamento è stato rimosso');
+      fetchData();
+    } catch (error: any) {
+      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+    }
   };
 
   const getStatusColor = (stato: string) => {
@@ -213,11 +208,6 @@ export default function PaymentsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Pagamenti</Text>
-      </View>
-
       {/* Admin only: Create button and tabs */}
       {isAdmin && (
         <>
@@ -356,7 +346,7 @@ export default function PaymentsScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity 
                       style={[styles.actionBtn, { backgroundColor: '#FEE2E2' }]}
-                      onPress={() => handleDelete(payment.id)}
+                      onPress={() => openDeleteModal(payment)}
                     >
                       <Ionicons name="trash" size={16} color="#EF4444" />
                       <Text style={[styles.actionBtnText, { color: '#EF4444' }]}>Elimina</Text>
@@ -369,6 +359,47 @@ export default function PaymentsScreen() {
         )}
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={deleteModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setDeleteModalVisible(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteIconContainer}>
+              <Ionicons name="receipt" size={40} color="#EF4444" />
+            </View>
+            <Text style={styles.deleteModalTitle}>Eliminare pagamento?</Text>
+            <Text style={styles.deleteModalAmount}>
+              €{paymentToDelete?.importo.toFixed(2)}
+            </Text>
+            <Text style={styles.deleteModalDesc}>
+              {paymentToDelete?.descrizione}
+            </Text>
+            <Text style={styles.deleteModalMessage}>
+              Questa azione non può essere annullata.
+            </Text>
+            <View style={styles.deleteModalActions}>
+              <TouchableOpacity 
+                style={styles.deleteModalCancel}
+                onPress={() => setDeleteModalVisible(false)}
+              >
+                <Text style={styles.deleteModalCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.deleteModalConfirm}
+                onPress={confirmDelete}
+              >
+                <Ionicons name="trash" size={18} color="#fff" />
+                <Text style={styles.deleteModalConfirmText}>Elimina</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal Create/Edit */}
       <Modal
@@ -488,17 +519,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-  },
-  header: {
-    backgroundColor: '#4A90D9',
-    paddingTop: 50,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
   },
   actionsBar: {
     padding: 12,
@@ -668,6 +688,87 @@ const styles = StyleSheet.create({
   actionBtnText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  deleteIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
+  },
+  deleteModalAmount: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#EF4444',
+    marginBottom: 4,
+  },
+  deleteModalDesc: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  deleteModalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  deleteModalCancelText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '600',
+  },
+  deleteModalConfirm: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  deleteModalConfirmText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
