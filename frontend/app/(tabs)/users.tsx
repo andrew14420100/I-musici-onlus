@@ -9,13 +9,12 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
-  Alert,
-  Animated
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { usersApi } from '../../src/services/api';
-import { User } from '../../src/types';
+import { User, INSTRUMENTS } from '../../src/types';
 
 export default function UsersScreen() {
   const { user: currentUser, isInitialized } = useAuth();
@@ -34,7 +33,10 @@ export default function UsersScreen() {
     email: '',
     password: '',
     ruolo: 'allievo' as string,
+    data_nascita: '',
     note_admin: '',
+    insegnante_id: '',  // For students: which teacher
+    strumento: '',      // For teachers: which instrument
   });
 
   const fetchUsers = async () => {
@@ -62,6 +64,12 @@ export default function UsersScreen() {
     setRefreshing(false);
   }, []);
 
+  // Get teachers list for student assignment
+  const teachers = users.filter(u => u.ruolo === 'insegnante' && u.attivo);
+  
+  // Get students list
+  const students = users.filter(u => u.ruolo === 'allievo');
+
   const filteredUsers = users.filter(u => {
     const matchesTab = u.ruolo === activeTab;
     const fullName = `${u.nome} ${u.cognome}`.toLowerCase();
@@ -79,7 +87,10 @@ export default function UsersScreen() {
       email: '',
       password: '',
       ruolo: ruolo,
+      data_nascita: '',
       note_admin: '',
+      insegnante_id: teachers[0]?.id || '',
+      strumento: INSTRUMENTS[0]?.value || '',
     });
     setModalVisible(true);
   };
@@ -92,7 +103,10 @@ export default function UsersScreen() {
       email: user.email,
       password: '',
       ruolo: user.ruolo,
+      data_nascita: (user as any).data_nascita || '',
       note_admin: user.note_admin || '',
+      insegnante_id: (user as any).insegnante_id || '',
+      strumento: (user as any).strumento || '',
     });
     setModalVisible(true);
   };
@@ -114,28 +128,57 @@ export default function UsersScreen() {
       Alert.alert('Errore', 'La password deve essere di almeno 6 caratteri');
       return;
     }
+    // Validate teacher selection for students
+    if (formData.ruolo === 'allievo' && !formData.insegnante_id) {
+      Alert.alert('Errore', 'Seleziona un insegnante per l\'allievo');
+      return;
+    }
+    // Validate instrument for teachers
+    if (formData.ruolo === 'insegnante' && !formData.strumento) {
+      Alert.alert('Errore', 'Seleziona uno strumento per l\'insegnante');
+      return;
+    }
 
     try {
       if (editingUser) {
         const updateData: any = {
           nome: formData.nome,
           cognome: formData.cognome,
+          data_nascita: formData.data_nascita || undefined,
           note_admin: formData.note_admin || undefined,
         };
         if (formData.password.trim()) {
           updateData.password = formData.password;
         }
+        // Update teacher assignment for students
+        if (editingUser.ruolo === 'allievo') {
+          updateData.insegnante_id = formData.insegnante_id;
+        }
+        // Update instrument for teachers
+        if (editingUser.ruolo === 'insegnante') {
+          updateData.strumento = formData.strumento;
+        }
         await usersApi.update(editingUser.id, updateData);
         Alert.alert('Successo', 'Utente modificato con successo');
       } else {
-        await usersApi.create({
+        const createData: any = {
           ruolo: formData.ruolo,
           nome: formData.nome,
           cognome: formData.cognome,
           email: formData.email,
           password: formData.password,
+          data_nascita: formData.data_nascita || undefined,
           note_admin: formData.note_admin || undefined,
-        });
+        };
+        // Add teacher assignment for students
+        if (formData.ruolo === 'allievo') {
+          createData.insegnante_id = formData.insegnante_id;
+        }
+        // Add instrument for teachers
+        if (formData.ruolo === 'insegnante') {
+          createData.strumento = formData.strumento;
+        }
+        await usersApi.create(createData);
         Alert.alert('Successo', `${formData.ruolo === 'allievo' ? 'Allievo' : 'Insegnante'} creato con successo`);
       }
       setModalVisible(false);
@@ -172,6 +215,18 @@ export default function UsersScreen() {
     } catch (error: any) {
       Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
     }
+  };
+
+  // Helper to get teacher name
+  const getTeacherName = (teacherId: string) => {
+    const teacher = teachers.find(t => t.id === teacherId);
+    return teacher ? `${teacher.nome} ${teacher.cognome}` : 'Non assegnato';
+  };
+
+  // Helper to get instrument label
+  const getInstrumentLabel = (value: string) => {
+    const instrument = INSTRUMENTS.find(i => i.value === value);
+    return instrument ? instrument.label : value;
   };
 
   if (!isInitialized || loading) {
@@ -275,6 +330,27 @@ export default function UsersScreen() {
               <View style={styles.userInfo}>
                 <Text style={styles.userName}>{user.nome} {user.cognome}</Text>
                 <Text style={styles.userEmail}>{user.email}</Text>
+                
+                {/* Show teacher for students */}
+                {user.ruolo === 'allievo' && (user as any).insegnante_id && (
+                  <View style={styles.assignmentBadge}>
+                    <Ionicons name="school" size={12} color="#4A90D9" />
+                    <Text style={styles.assignmentText}>
+                      {getTeacherName((user as any).insegnante_id)}
+                    </Text>
+                  </View>
+                )}
+                
+                {/* Show instrument for teachers */}
+                {user.ruolo === 'insegnante' && (user as any).strumento && (
+                  <View style={[styles.assignmentBadge, { backgroundColor: '#FEF3C7' }]}>
+                    <Ionicons name="musical-notes" size={12} color="#F59E0B" />
+                    <Text style={[styles.assignmentText, { color: '#F59E0B' }]}>
+                      {getInstrumentLabel((user as any).strumento)}
+                    </Text>
+                  </View>
+                )}
+                
                 <View style={[styles.statusBadge, { backgroundColor: user.attivo ? '#D1FAE5' : '#FEE2E2' }]}>
                   <Text style={[styles.statusText, { color: user.attivo ? '#065F46' : '#DC2626' }]}>
                     {user.attivo ? 'Attivo' : 'Disattivato'}
@@ -414,6 +490,90 @@ export default function UsersScreen() {
                   secureTextEntry
                 />
               </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Data di Nascita</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.data_nascita}
+                  onChangeText={(text) => setFormData({ ...formData, data_nascita: text })}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+
+              {/* Teacher Selection for Students */}
+              {formData.ruolo === 'allievo' && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Insegnante di riferimento *</Text>
+                  <View style={styles.pickerContainer}>
+                    {teachers.length === 0 ? (
+                      <Text style={styles.noOptionsText}>Nessun insegnante disponibile</Text>
+                    ) : (
+                      teachers.map(teacher => (
+                        <TouchableOpacity
+                          key={teacher.id}
+                          style={[
+                            styles.pickerOption,
+                            formData.insegnante_id === teacher.id && styles.pickerOptionSelected
+                          ]}
+                          onPress={() => setFormData({ ...formData, insegnante_id: teacher.id })}
+                        >
+                          <Ionicons 
+                            name="school" 
+                            size={16} 
+                            color={formData.insegnante_id === teacher.id ? '#fff' : '#666'} 
+                          />
+                          <Text style={[
+                            styles.pickerOptionText,
+                            formData.insegnante_id === teacher.id && styles.pickerOptionTextSelected
+                          ]}>
+                            {teacher.nome} {teacher.cognome}
+                          </Text>
+                          {(teacher as any).strumento && (
+                            <Text style={[
+                              styles.pickerOptionSub,
+                              formData.insegnante_id === teacher.id && { color: 'rgba(255,255,255,0.8)' }
+                            ]}>
+                              ({getInstrumentLabel((teacher as any).strumento)})
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* Instrument Selection for Teachers */}
+              {formData.ruolo === 'insegnante' && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Strumento musicale *</Text>
+                  <View style={styles.pickerContainer}>
+                    {INSTRUMENTS.map(instrument => (
+                      <TouchableOpacity
+                        key={instrument.value}
+                        style={[
+                          styles.pickerOption,
+                          formData.strumento === instrument.value && styles.pickerOptionSelected
+                        ]}
+                        onPress={() => setFormData({ ...formData, strumento: instrument.value })}
+                      >
+                        <Ionicons 
+                          name={instrument.icon as any} 
+                          size={16} 
+                          color={formData.strumento === instrument.value ? '#fff' : '#666'} 
+                        />
+                        <Text style={[
+                          styles.pickerOptionText,
+                          formData.strumento === instrument.value && styles.pickerOptionTextSelected
+                        ]}>
+                          {instrument.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
 
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Note amministratore</Text>
@@ -594,12 +754,28 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
+  assignmentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#EBF5FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 4,
+    gap: 4,
+  },
+  assignmentText: {
+    fontSize: 11,
+    color: '#4A90D9',
+    fontWeight: '500',
+  },
   statusBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
-    marginTop: 6,
+    marginTop: 4,
   },
   statusText: {
     fontSize: 11,
@@ -697,7 +873,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '85%',
+    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -714,7 +890,7 @@ const styles = StyleSheet.create({
   },
   formScroll: {
     padding: 16,
-    maxHeight: 400,
+    maxHeight: 450,
   },
   formGroup: {
     marginBottom: 16,
@@ -733,6 +909,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
+  },
+  pickerContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 6,
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#4A90D9',
+    borderColor: '#4A90D9',
+  },
+  pickerOptionText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  pickerOptionTextSelected: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  pickerOptionSub: {
+    fontSize: 11,
+    color: '#999',
+  },
+  noOptionsText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
   },
   infoBox: {
     flexDirection: 'row',
