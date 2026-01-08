@@ -17,8 +17,20 @@ export enum PaymentStatus {
 }
 
 export enum PaymentType {
-  STUDENT_FEE = 'quota_studente',
+  MONTHLY = 'mensile',
+  ANNUAL = 'annuale',
   TEACHER_COMPENSATION = 'compenso_insegnante'
+}
+
+export enum NotificationType {
+  GENERAL = 'generale',
+  PAYMENT = 'pagamento',
+  LESSON = 'lezione'
+}
+
+export enum RecipientType {
+  ALL = 'tutti',
+  SPECIFIC = 'singoli'
 }
 
 export const INSTRUMENTS = [
@@ -50,6 +62,8 @@ export interface User {
   cognome: string;
   email: string;
   attivo: boolean;
+  first_login?: boolean;
+  data_nascita?: string;
   data_creazione?: string;
   ultimo_accesso?: string;
   note_admin?: string;
@@ -59,13 +73,48 @@ export interface User {
   picture?: string;
 }
 
+export interface Course {
+  id: string;
+  nome: string;
+  strumento: string;
+  insegnante_id: string;
+  descrizione?: string;
+  attivo: boolean;
+  data_creazione: string;
+  insegnante?: { nome: string; cognome: string };
+}
+
+export interface Lesson {
+  id: string;
+  corso_id: string;
+  insegnante_id: string;
+  data: string;
+  ora: string;
+  durata: number;
+  note?: string;
+  data_creazione: string;
+  corso?: { nome: string; strumento: string };
+  insegnante?: { nome: string; cognome: string };
+}
+
 export interface Attendance {
   id: string;
+  corso_id?: string;
+  lezione_id?: string;
   allievo_id: string;
   insegnante_id: string;
   data: string;
-  stato: AttendanceStatus;
+  stato: AttendanceStatus | string;
+  recupero_data?: string;
   note?: string;
+  data_creazione: string;
+}
+
+export interface TeacherCompensation {
+  id: string;
+  insegnante_id: string;
+  corso_id?: string;
+  quota_per_presenza: number;
   data_creazione: string;
 }
 
@@ -83,23 +132,36 @@ export interface Assignment {
 export interface Payment {
   id: string;
   utente_id: string;
-  tipo: PaymentType;
+  tipo: PaymentType | string;
   importo: number;
   descrizione: string;
   data_scadenza: string;
-  stato: PaymentStatus;
+  stato: PaymentStatus | string;
+  data_pagamento?: string;
+  data_inizio_validita?: string;
+  data_fine_validita?: string;
+  tolleranza_giorni?: number;
   visibile_utente: boolean;
   data_creazione: string;
 }
 
 export interface Notification {
+  notification_id?: string; // Legacy
   id: string;
   titolo: string;
+  title?: string; // Legacy
   messaggio: string;
+  message?: string; // Legacy
   tipo: string;
+  notification_type?: string; // Legacy
+  destinatari_tipo?: string;
   destinatari_ids: string[];
+  recipient_ids?: string[]; // Legacy
+  filtro_pagamento?: string;
   attivo: boolean;
+  is_active?: boolean; // Legacy
   data_creazione: string;
+  created_at?: string; // Legacy
 }
 
 export interface AdminStats {
@@ -108,16 +170,12 @@ export interface AdminStats {
   pagamenti_non_pagati: number;
   notifiche_attive: number;
   presenze_oggi: number;
+  corsi_attivi?: number;
 }
 
-// Legacy compatibility - some code uses these old field names
-export interface LegacyAdminStats {
-  studenti_attivi: number;
-  insegnanti_attivi: number;
-  corsi_attivi: number;
-  lezioni_settimana: number;
-  pagamenti_studenti_non_pagati: number;
-  compensi_insegnanti_non_pagati: number;
-  notifiche_attive: number;
-  lezioni_oggi: any[];
+export interface Settings {
+  payment_due_day: number;
+  payment_tolerance_days: number;
+  default_monthly_fee: number;
+  annual_reminder_days: number;
 }
