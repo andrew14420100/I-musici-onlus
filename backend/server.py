@@ -1338,6 +1338,237 @@ async def calculate_teacher_compensation(
         "totale_compenso": totale
     }
 
+# ===================== PAYMENT AUTOMATION =====================
+
+@api_router.post("/automazioni/aggiorna-pagamenti-scaduti")
+async def update_overdue_payments(request: Request):
+    """
+    Update payment statuses based on due date.
+    - Monthly payments: overdue from day 8 of the month
+    - With tolerance: overdue from day (7 + tolerance + 1)
+    Admin only.
+    """
+    await require_admin(request)
+    
+    today = datetime.now(timezone.utc)
+    
+    # Find all pending payments that are past due
+    query = {
+        "stato": PaymentStatus.PENDING.value,
+        "data_scadenza": {"$lt": today}
+    }
+    
+    # Get payments and check tolerance
+    payments = await db.pagamenti.find(query, {"_id": 0}).to_list(1000)
+    
+    updated_count = 0
+    for payment in payments:
+        tolerance = payment.get("tolleranza_giorni", PAYMENT_TOLERANCE_DAYS)
+        due_date = payment["data_scadenza"]
+        
+        # Add tolerance days
+        actual_due_date = due_date + timedelta(days=tolerance)
+        
+        if today > actual_due_date:
+            await db.pagamenti.update_one(
+                {"id": payment["id"]},
+                {"$set": {"stato": PaymentStatus.OVERDUE.value}}
+            )
+            updated_count += 1
+    
+    return {
+        "message": f"Aggiornati {updated_count} pagamenti a SCADUTO",
+        "updated_count": updated_count
+    }
+
+@api_router.post("/automazioni/crea-pagamenti-mensili")
+async def create_monthly_payments(request: Request):
+    """
+    Create monthly payment entries for all active students.
+    Monthly payments have default due date of day 7.
+    Admin only.
+    """
+    await require_admin(request)
+    
+    body = await request.json()
+    importo = body.get("importo", 150.0)
+    mese = body.get("mese")  # YYYY-MM format
+    descrizione = body.get("descrizione")
+    
+    if not mese:
+        # Default to current month
+        now = datetime.now(timezone.utc)
+        mese = now.strftime("%Y-%m")
+    
+    if not descrizione:
+        descrizione = f"Quota mensile {mese}"
+    
+    # Due date is day 7 of the specified month
+    due_date = datetime.fromisoformat(f"{mese}-07T23:59:59")
+    
+    # Get all active students
+    students = await db.utenti.find({
+        "ruolo": UserRole.STUDENT.value,
+        "attivo": True
+    }, {"_id": 0}).to_list(500)
+    
+    created_count = 0
+    for student in students:
+        # Check if payment already exists for this month
+        existing = await db.pagamenti.find_one({
+            "utente_id": student["id"],
+            "tipo": PaymentType.MONTHLY.value,
+            "descrizione": {"$regex": mese}
+        })
+        
+        if not existing:
+            payment = {
+                "id": str(uuid.uuid4()),
+                "utente_id": student["id"],
+                "tipo": PaymentType.MONTHLY.value,
+                "importo": importo,
+                "descrizione": descrizione,
+                "data_scadenza": due_date,
+                "stato": PaymentStatus.PENDING.value,
+                "data_pagamento": None,
+                "tolleranza_giorni": PAYMENT_TOLERANCE_DAYS,
+                "visibile_utente": True,
+                "data_creazione": datetime.now(timezone.utc)
+            }
+            await db.pagamenti.insert_one(payment)
+            created_count += 1
+    
+    return {
+        "message": f"Creati {created_count} pagamenti mensili per {mese}",
+        "created_count": created_count
+    }
+
+@api_router.post("/automazioni/avvisi-pagamento")
+async def create_payment_reminders(request: Request):
+    """
+    Create automatic notifications for pending/overdue payments.
+    Admin only.
+    """
+    await require_admin(request)
+    
+    body = await request.json()
+    tipo_avviso = body.get("tipo", "in_attesa")  # in_attesa | scaduto
+    
+    # Get users with specified payment status
+    query = {"stato": tipo_avviso}
+    payments = await db.pagamenti.find(query, {"_id": 0}).to_list(1000)
+    
+    user_ids = list(set([p["utente_id"] for p in payments]))
+    
+    if not user_ids:
+        return {"message": "Nessun utente con pagamenti " + tipo_avviso}
+    
+    # Create notification
+    if tipo_avviso == "in_attesa":
+        titolo = "Promemoria pagamento"
+        messaggio = "Ricorda di effettuare il pagamento della quota entro la scadenza."
+    else:  # scaduto
+        titolo = "Pagamento scaduto"
+        messaggio = "Hai un pagamento scaduto. Ti preghiamo di regolarizzare la tua posizione."
+    
+    notification = {
+        "id": str(uuid.uuid4()),
+        "titolo": titolo,
+        "messaggio": messaggio,
+        "tipo": NotificationType.PAYMENT.value,
+        "destinatari_tipo": RecipientType.SPECIFIC.value,
+        "destinatari_ids": user_ids,
+        "filtro_pagamento": tipo_avviso,
+        "attivo": True,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    
+    await db.notifiche.insert_one(notification)
+    
+    return {
+        "message": f"Creato avviso per {len(user_ids)} utenti con pagamenti {tipo_avviso}",
+        "notification_id": notification["id"],
+        "recipients_count": len(user_ids)
+    }
+
+@api_router.get("/automazioni/pagamenti-in-scadenza")
+async def get_expiring_payments(
+    request: Request,
+    giorni: int = 30
+):
+    """
+    Get annual payments expiring within specified days.
+    Useful for creating reminders 1 month before expiration.
+    """
+    await require_admin(request)
+    
+    today = datetime.now(timezone.utc)
+    future_date = today + timedelta(days=giorni)
+    
+    query = {
+        "tipo": PaymentType.ANNUAL.value,
+        "stato": PaymentStatus.PAID.value,
+        "data_fine_validita": {
+            "$gte": today,
+            "$lte": future_date
+        }
+    }
+    
+    payments = await db.pagamenti.find(query, {"_id": 0}).to_list(500)
+    
+    # Add user info
+    for payment in payments:
+        user = await db.utenti.find_one({"id": payment["utente_id"]}, {"_id": 0, "password_hash": 0})
+        if user:
+            payment["utente"] = {"nome": user["nome"], "cognome": user["cognome"], "email": user["email"]}
+    
+    return {
+        "message": f"Trovati {len(payments)} pagamenti annuali in scadenza nei prossimi {giorni} giorni",
+        "payments": payments
+    }
+
+# ===================== SETTINGS API =====================
+
+@api_router.get("/impostazioni")
+async def get_settings(request: Request):
+    """Get system settings (Admin only)"""
+    await require_admin(request)
+    
+    settings = await db.impostazioni.find_one({}, {"_id": 0})
+    if not settings:
+        # Default settings
+        settings = {
+            "payment_due_day": PAYMENT_DUE_DAY,
+            "payment_tolerance_days": PAYMENT_TOLERANCE_DAYS,
+            "default_monthly_fee": 150.0,
+            "annual_reminder_days": 30
+        }
+        await db.impostazioni.insert_one(settings)
+    
+    return settings
+
+@api_router.put("/impostazioni")
+async def update_settings(request: Request):
+    """Update system settings (Admin only)"""
+    await require_admin(request)
+    
+    body = await request.json()
+    
+    update_dict = {}
+    if "payment_due_day" in body:
+        update_dict["payment_due_day"] = body["payment_due_day"]
+    if "payment_tolerance_days" in body:
+        update_dict["payment_tolerance_days"] = body["payment_tolerance_days"]
+    if "default_monthly_fee" in body:
+        update_dict["default_monthly_fee"] = body["default_monthly_fee"]
+    if "annual_reminder_days" in body:
+        update_dict["annual_reminder_days"] = body["annual_reminder_days"]
+    
+    if update_dict:
+        await db.impostazioni.update_one({}, {"$set": update_dict}, upsert=True)
+    
+    return await db.impostazioni.find_one({}, {"_id": 0})
+
 # ===================== ASSIGNMENT ROUTES =====================
 
 @api_router.get("/compiti")
