@@ -752,10 +752,16 @@ async def create_user(user_data: UserCreate, request: Request):
         "cognome": user_data.cognome,
         "email": user_data.email.lower(),
         "password_hash": hash_password(user_data.password),
+        "data_nascita": user_data.data_nascita,
         "attivo": True,
+        "first_login": True,
         "data_creazione": datetime.now(timezone.utc),
         "ultimo_accesso": None,
-        "note_admin": user_data.note_admin
+        "note_admin": user_data.note_admin,
+        # Student: which teacher they belong to
+        "insegnante_id": user_data.insegnante_id if user_data.ruolo == UserRole.STUDENT else None,
+        # Teacher: which instrument they teach
+        "strumento": user_data.strumento if user_data.ruolo == UserRole.TEACHER else None
     }
     
     await db.utenti.insert_one(new_user)
