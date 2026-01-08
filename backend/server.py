@@ -806,10 +806,18 @@ async def update_user(user_id: str, user_data: UserUpdate, request: Request):
         update_dict["email"] = user_data.email.lower()
     if user_data.password is not None:
         update_dict["password_hash"] = hash_password(user_data.password)
+    if user_data.data_nascita is not None:
+        update_dict["data_nascita"] = user_data.data_nascita
     if user_data.attivo is not None:
         update_dict["attivo"] = user_data.attivo
+    if user_data.first_login is not None:
+        update_dict["first_login"] = user_data.first_login
     if user_data.note_admin is not None:
         update_dict["note_admin"] = user_data.note_admin
+    if user_data.insegnante_id is not None:
+        update_dict["insegnante_id"] = user_data.insegnante_id
+    if user_data.strumento is not None:
+        update_dict["strumento"] = user_data.strumento
     
     if update_dict:
         await db.utenti.update_one({"id": user_id}, {"$set": update_dict})
