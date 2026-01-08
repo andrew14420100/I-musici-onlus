@@ -1788,7 +1788,9 @@ async def create_notification(notif_data: NotificationCreate, request: Request):
         "titolo": notif_data.titolo,
         "messaggio": notif_data.messaggio,
         "tipo": notif_data.tipo,
+        "destinatari_tipo": notif_data.destinatari_tipo,
         "destinatari_ids": notif_data.destinatari_ids,
+        "filtro_pagamento": notif_data.filtro_pagamento,
         "attivo": True,
         "data_creazione": datetime.now(timezone.utc)
     }
