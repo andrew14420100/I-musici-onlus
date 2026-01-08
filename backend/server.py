@@ -1004,6 +1004,340 @@ async def delete_attendance(attendance_id: str, request: Request):
     
     return {"message": "Presenza eliminata"}
 
+# ===================== COURSE ROUTES =====================
+
+@api_router.get("/corsi")
+async def get_courses(
+    request: Request,
+    insegnante_id: Optional[str] = None,
+    attivo: Optional[bool] = None
+):
+    """Get courses"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    
+    # Teachers can only see their own courses
+    if current_user["ruolo"] == UserRole.TEACHER.value:
+        query["insegnante_id"] = current_user["id"]
+    elif insegnante_id:
+        query["insegnante_id"] = insegnante_id
+    
+    if attivo is not None:
+        query["attivo"] = attivo
+    
+    courses = await db.corsi.find(query, {"_id": 0}).to_list(500)
+    
+    # Add teacher info
+    for course in courses:
+        teacher = await db.utenti.find_one({"id": course["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+        if teacher:
+            course["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+    
+    return courses
+
+@api_router.post("/corsi")
+async def create_course(course_data: CourseCreate, request: Request):
+    """Create course (Admin only)"""
+    await require_admin(request)
+    
+    course = {
+        "id": str(uuid.uuid4()),
+        "nome": course_data.nome,
+        "strumento": course_data.strumento,
+        "insegnante_id": course_data.insegnante_id,
+        "descrizione": course_data.descrizione,
+        "attivo": True,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    
+    await db.corsi.insert_one(course)
+    course.pop("_id", None)
+    return course
+
+@api_router.put("/corsi/{course_id}")
+async def update_course(course_id: str, request: Request):
+    """Update course (Admin only)"""
+    await require_admin(request)
+    
+    body = await request.json()
+    
+    update_dict = {}
+    if "nome" in body:
+        update_dict["nome"] = body["nome"]
+    if "strumento" in body:
+        update_dict["strumento"] = body["strumento"]
+    if "insegnante_id" in body:
+        update_dict["insegnante_id"] = body["insegnante_id"]
+    if "descrizione" in body:
+        update_dict["descrizione"] = body["descrizione"]
+    if "attivo" in body:
+        update_dict["attivo"] = body["attivo"]
+    
+    if update_dict:
+        await db.corsi.update_one({"id": course_id}, {"$set": update_dict})
+    
+    course = await db.corsi.find_one({"id": course_id}, {"_id": 0})
+    if not course:
+        raise HTTPException(status_code=404, detail="Corso non trovato")
+    return course
+
+@api_router.delete("/corsi/{course_id}")
+async def delete_course(course_id: str, request: Request):
+    """Delete course (Admin only)"""
+    await require_admin(request)
+    
+    result = await db.corsi.delete_one({"id": course_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Corso non trovato")
+    
+    return {"message": "Corso eliminato"}
+
+# ===================== LESSON ROUTES =====================
+
+@api_router.get("/lezioni")
+async def get_lessons(
+    request: Request,
+    corso_id: Optional[str] = None,
+    insegnante_id: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None
+):
+    """Get lessons"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    
+    # Teachers can only see their own lessons
+    if current_user["ruolo"] == UserRole.TEACHER.value:
+        query["insegnante_id"] = current_user["id"]
+    elif insegnante_id:
+        query["insegnante_id"] = insegnante_id
+    
+    if corso_id:
+        query["corso_id"] = corso_id
+    
+    if from_date:
+        query["data"] = {"$gte": datetime.fromisoformat(from_date)}
+    if to_date:
+        if "data" in query:
+            query["data"]["$lte"] = datetime.fromisoformat(to_date)
+        else:
+            query["data"] = {"$lte": datetime.fromisoformat(to_date)}
+    
+    lessons = await db.lezioni.find(query, {"_id": 0}).sort("data", 1).to_list(500)
+    
+    # Add course and teacher info
+    for lesson in lessons:
+        course = await db.corsi.find_one({"id": lesson["corso_id"]}, {"_id": 0})
+        if course:
+            lesson["corso"] = {"nome": course["nome"], "strumento": course["strumento"]}
+        teacher = await db.utenti.find_one({"id": lesson["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+        if teacher:
+            lesson["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+    
+    return lessons
+
+@api_router.post("/lezioni")
+async def create_lesson(lesson_data: LessonCreate, request: Request):
+    """Create lesson (Admin only)"""
+    await require_admin(request)
+    
+    lesson = {
+        "id": str(uuid.uuid4()),
+        "corso_id": lesson_data.corso_id,
+        "insegnante_id": lesson_data.insegnante_id,
+        "data": datetime.fromisoformat(lesson_data.data),
+        "ora": lesson_data.ora,
+        "durata": lesson_data.durata,
+        "note": None,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    
+    await db.lezioni.insert_one(lesson)
+    lesson.pop("_id", None)
+    return lesson
+
+@api_router.put("/lezioni/{lesson_id}")
+async def update_lesson(lesson_id: str, request: Request):
+    """Update lesson (Admin only)"""
+    await require_admin(request)
+    
+    body = await request.json()
+    
+    update_dict = {}
+    if "data" in body:
+        update_dict["data"] = datetime.fromisoformat(body["data"])
+    if "ora" in body:
+        update_dict["ora"] = body["ora"]
+    if "durata" in body:
+        update_dict["durata"] = body["durata"]
+    if "note" in body:
+        update_dict["note"] = body["note"]
+    
+    if update_dict:
+        await db.lezioni.update_one({"id": lesson_id}, {"$set": update_dict})
+    
+    lesson = await db.lezioni.find_one({"id": lesson_id}, {"_id": 0})
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lezione non trovata")
+    return lesson
+
+@api_router.delete("/lezioni/{lesson_id}")
+async def delete_lesson(lesson_id: str, request: Request):
+    """Delete lesson (Admin only)"""
+    await require_admin(request)
+    
+    result = await db.lezioni.delete_one({"id": lesson_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Lezione non trovata")
+    
+    return {"message": "Lezione eliminata"}
+
+# ===================== TEACHER COMPENSATION ROUTES =====================
+
+@api_router.get("/compensi")
+async def get_compensations(
+    request: Request,
+    insegnante_id: Optional[str] = None
+):
+    """Get teacher compensations"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    
+    # Teachers can only see their own compensations
+    if current_user["ruolo"] == UserRole.TEACHER.value:
+        query["insegnante_id"] = current_user["id"]
+    elif insegnante_id:
+        query["insegnante_id"] = insegnante_id
+    
+    compensations = await db.compensi.find(query, {"_id": 0}).to_list(500)
+    return compensations
+
+@api_router.post("/compensi")
+async def create_compensation(comp_data: TeacherCompensationCreate, request: Request):
+    """Create teacher compensation (Admin only)"""
+    await require_admin(request)
+    
+    compensation = {
+        "id": str(uuid.uuid4()),
+        "insegnante_id": comp_data.insegnante_id,
+        "corso_id": comp_data.corso_id,
+        "quota_per_presenza": comp_data.quota_per_presenza,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    
+    await db.compensi.insert_one(compensation)
+    compensation.pop("_id", None)
+    return compensation
+
+@api_router.put("/compensi/{comp_id}")
+async def update_compensation(comp_id: str, request: Request):
+    """Update compensation (Admin only)"""
+    await require_admin(request)
+    
+    body = await request.json()
+    
+    update_dict = {}
+    if "quota_per_presenza" in body:
+        update_dict["quota_per_presenza"] = body["quota_per_presenza"]
+    if "corso_id" in body:
+        update_dict["corso_id"] = body["corso_id"]
+    
+    if update_dict:
+        await db.compensi.update_one({"id": comp_id}, {"$set": update_dict})
+    
+    compensation = await db.compensi.find_one({"id": comp_id}, {"_id": 0})
+    if not compensation:
+        raise HTTPException(status_code=404, detail="Compenso non trovato")
+    return compensation
+
+@api_router.delete("/compensi/{comp_id}")
+async def delete_compensation(comp_id: str, request: Request):
+    """Delete compensation (Admin only)"""
+    await require_admin(request)
+    
+    result = await db.compensi.delete_one({"id": comp_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Compenso non trovato")
+    
+    return {"message": "Compenso eliminato"}
+
+# ===================== CALCULATE TEACHER COMPENSATION =====================
+
+@api_router.get("/compensi/calcolo/{insegnante_id}")
+async def calculate_teacher_compensation(
+    insegnante_id: str,
+    from_date: str,
+    to_date: str,
+    request: Request
+):
+    """
+    Calculate teacher compensation based on attendance records.
+    Rules:
+    - Presente = pagato
+    - Assente = pagato
+    - Giustificato = NON pagato
+    - Recupero = pagato nel giorno del recupero
+    """
+    current_user = await require_auth(request)
+    
+    # Teachers can only see their own, admin can see all
+    if current_user["ruolo"] == UserRole.TEACHER.value and current_user["id"] != insegnante_id:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    # Get compensation rate
+    comp = await db.compensi.find_one({"insegnante_id": insegnante_id}, {"_id": 0})
+    quota = comp["quota_per_presenza"] if comp else 30.0  # Default
+    
+    # Get attendance records
+    query = {
+        "insegnante_id": insegnante_id,
+        "data": {
+            "$gte": datetime.fromisoformat(from_date),
+            "$lte": datetime.fromisoformat(to_date)
+        }
+    }
+    
+    records = await db.presenze.find(query, {"_id": 0}).to_list(1000)
+    
+    # Calculate
+    presenti = 0
+    assenti = 0
+    giustificati = 0
+    recuperi = 0
+    
+    for r in records:
+        if r["stato"] == AttendanceStatus.PRESENT.value:
+            presenti += 1
+        elif r["stato"] == AttendanceStatus.ABSENT.value:
+            assenti += 1
+        elif r["stato"] == AttendanceStatus.JUSTIFIED.value:
+            giustificati += 1
+            # Check if there's a recovery date
+            if r.get("recupero_data"):
+                recuperi += 1
+    
+    # Compenso = (presenti + assenti + recuperi) * quota
+    # Giustificati senza recupero = NON pagati
+    lezioni_pagate = presenti + assenti + recuperi
+    totale = lezioni_pagate * quota
+    
+    return {
+        "insegnante_id": insegnante_id,
+        "periodo": {"da": from_date, "a": to_date},
+        "dettaglio": {
+            "presenti": presenti,
+            "assenti": assenti,
+            "giustificati": giustificati,
+            "recuperi": recuperi
+        },
+        "quota_per_presenza": quota,
+        "lezioni_pagate": lezioni_pagate,
+        "totale_compenso": totale
+    }
+
 # ===================== ASSIGNMENT ROUTES =====================
 
 @api_router.get("/compiti")
