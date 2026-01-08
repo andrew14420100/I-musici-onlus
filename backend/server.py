@@ -287,11 +287,15 @@ class AssignmentCreate(BaseModel):
 class Payment(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     utente_id: str
-    tipo: PaymentType
+    tipo: PaymentType  # mensile / annuale / compenso_insegnante
     importo: float
     descrizione: str
     data_scadenza: datetime
     stato: PaymentStatus = PaymentStatus.PENDING
+    data_pagamento: Optional[datetime] = None  # Data effettiva del pagamento
+    data_inizio_validita: Optional[datetime] = None  # Per pagamenti annuali
+    data_fine_validita: Optional[datetime] = None  # Per pagamenti annuali
+    tolleranza_giorni: int = 0  # Configurabile da Admin
     visibile_utente: bool = True
     data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -300,15 +304,27 @@ class PaymentCreate(BaseModel):
     tipo: PaymentType
     importo: float
     descrizione: str
-    data_scadenza: str
+    data_scadenza: str  # YYYY-MM-DD
+    tolleranza_giorni: int = 0
+
+class PaymentUpdate(BaseModel):
+    importo: Optional[float] = None
+    descrizione: Optional[str] = None
+    data_scadenza: Optional[str] = None
+    stato: Optional[PaymentStatus] = None
+    data_pagamento: Optional[str] = None
+    tolleranza_giorni: Optional[int] = None
+    visibile_utente: Optional[bool] = None
 
 # Notification Models
 class Notification(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     titolo: str
     messaggio: str
-    tipo: str = "generale"
+    tipo: NotificationType = NotificationType.GENERAL  # generale / pagamento / lezione
+    destinatari_tipo: RecipientType = RecipientType.ALL  # tutti / singoli
     destinatari_ids: List[str] = []  # Empty = all users
+    filtro_pagamento: Optional[str] = None  # null / in_attesa / scaduto
     attivo: bool = True
     data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -316,7 +332,9 @@ class NotificationCreate(BaseModel):
     titolo: str
     messaggio: str
     tipo: str = "generale"
+    destinatari_tipo: str = "tutti"
     destinatari_ids: List[str] = []
+    filtro_pagamento: Optional[str] = None
 
 # Login Models
 class LoginRequest(BaseModel):
