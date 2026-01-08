@@ -950,10 +950,13 @@ async def create_attendance(attendance_data: AttendanceCreate, request: Request)
     
     record = {
         "id": str(uuid.uuid4()),
+        "corso_id": attendance_data.corso_id,
+        "lezione_id": attendance_data.lezione_id,
         "allievo_id": attendance_data.allievo_id,
         "insegnante_id": current_user["id"],
         "data": datetime.fromisoformat(attendance_data.data),
         "stato": attendance_data.stato.value,
+        "recupero_data": datetime.fromisoformat(attendance_data.recupero_data) if attendance_data.recupero_data else None,
         "note": attendance_data.note,
         "data_creazione": datetime.now(timezone.utc)
     }
@@ -964,8 +967,8 @@ async def create_attendance(attendance_data: AttendanceCreate, request: Request)
 
 @api_router.put("/presenze/{attendance_id}")
 async def update_attendance(attendance_id: str, request: Request):
-    """Update attendance record"""
-    current_user = await require_teacher_or_admin(request)
+    """Update attendance record (ADMIN ONLY - teachers cannot modify after save)"""
+    current_user = await require_auth(request)
     
     body = await request.json()
     
@@ -973,15 +976,17 @@ async def update_attendance(attendance_id: str, request: Request):
     if not existing:
         raise HTTPException(status_code=404, detail="Presenza non trovata")
     
-    # Only admin or the teacher who created it can update
-    if current_user["ruolo"] != UserRole.ADMIN.value and current_user["id"] != existing["insegnante_id"]:
-        raise HTTPException(status_code=403, detail="Non autorizzato")
+    # RULE: Only admin can modify attendance records after creation
+    if current_user["ruolo"] != UserRole.ADMIN.value:
+        raise HTTPException(status_code=403, detail="Solo l'amministratore può modificare le presenze salvate")
     
     update_dict = {}
     if "stato" in body:
         update_dict["stato"] = body["stato"]
     if "note" in body:
         update_dict["note"] = body["note"]
+    if "recupero_data" in body:
+        update_dict["recupero_data"] = datetime.fromisoformat(body["recupero_data"]) if body["recupero_data"] else None
     
     if update_dict:
         await db.presenze.update_one({"id": attendance_id}, {"$set": update_dict})
@@ -990,8 +995,8 @@ async def update_attendance(attendance_id: str, request: Request):
 
 @api_router.delete("/presenze/{attendance_id}")
 async def delete_attendance(attendance_id: str, request: Request):
-    """Delete attendance record"""
-    await require_teacher_or_admin(request)
+    """Delete attendance record (Admin only)"""
+    await require_admin(request)
     
     result = await db.presenze.delete_one({"id": attendance_id})
     if result.deleted_count == 0:
