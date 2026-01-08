@@ -91,7 +91,9 @@ class User(BaseModel):
     cognome: str
     email: str
     password_hash: str
+    data_nascita: Optional[str] = None  # YYYY-MM-DD
     attivo: bool = True
+    first_login: bool = True  # True = must change password
     data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ultimo_accesso: Optional[datetime] = None
     note_admin: Optional[str] = None
@@ -102,6 +104,7 @@ class UserCreate(BaseModel):
     cognome: str
     email: str
     password: str  # Plain password, will be hashed
+    data_nascita: Optional[str] = None
     note_admin: Optional[str] = None
 
 class UserUpdate(BaseModel):
@@ -109,7 +112,9 @@ class UserUpdate(BaseModel):
     cognome: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None  # New password if changing
+    data_nascita: Optional[str] = None
     attivo: Optional[bool] = None
+    first_login: Optional[bool] = None
     note_admin: Optional[str] = None
 
 class UserResponse(BaseModel):
@@ -119,6 +124,8 @@ class UserResponse(BaseModel):
     cognome: str
     email: str
     attivo: bool
+    first_login: bool
+    data_nascita: Optional[str] = None
     data_creazione: datetime
     ultimo_accesso: Optional[datetime] = None
 
