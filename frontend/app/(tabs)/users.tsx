@@ -491,23 +491,44 @@ export default function UsersScreen() {
                 />
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Data di Nascita</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.data_nascita}
-                  onChangeText={(text) => setFormData({ ...formData, data_nascita: text })}
-                  placeholder="YYYY-MM-DD"
-                />
-              </View>
+              {/* Instrument Selection for Teachers - MOVED UP */}
+              {formData.ruolo === 'insegnante' && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Strumento musicale *</Text>
+                  <View style={styles.pickerContainer}>
+                    {INSTRUMENTS.map(instrument => (
+                      <TouchableOpacity
+                        key={instrument.value}
+                        style={[
+                          styles.pickerOption,
+                          formData.strumento === instrument.value && styles.pickerOptionSelected
+                        ]}
+                        onPress={() => setFormData({ ...formData, strumento: instrument.value })}
+                      >
+                        <Ionicons 
+                          name={instrument.icon as any} 
+                          size={16} 
+                          color={formData.strumento === instrument.value ? '#fff' : '#666'} 
+                        />
+                        <Text style={[
+                          styles.pickerOptionText,
+                          formData.strumento === instrument.value && styles.pickerOptionTextSelected
+                        ]}>
+                          {instrument.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
 
-              {/* Teacher Selection for Students */}
+              {/* Teacher Selection for Students - MOVED UP */}
               {formData.ruolo === 'allievo' && (
                 <View style={styles.formGroup}>
                   <Text style={styles.label}>Insegnante di riferimento *</Text>
                   <View style={styles.pickerContainer}>
                     {teachers.length === 0 ? (
-                      <Text style={styles.noOptionsText}>Nessun insegnante disponibile</Text>
+                      <Text style={styles.noOptionsText}>Nessun insegnante disponibile. Crea prima un insegnante.</Text>
                     ) : (
                       teachers.map(teacher => (
                         <TouchableOpacity
@@ -544,36 +565,15 @@ export default function UsersScreen() {
                 </View>
               )}
 
-              {/* Instrument Selection for Teachers */}
-              {formData.ruolo === 'insegnante' && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Strumento musicale *</Text>
-                  <View style={styles.pickerContainer}>
-                    {INSTRUMENTS.map(instrument => (
-                      <TouchableOpacity
-                        key={instrument.value}
-                        style={[
-                          styles.pickerOption,
-                          formData.strumento === instrument.value && styles.pickerOptionSelected
-                        ]}
-                        onPress={() => setFormData({ ...formData, strumento: instrument.value })}
-                      >
-                        <Ionicons 
-                          name={instrument.icon as any} 
-                          size={16} 
-                          color={formData.strumento === instrument.value ? '#fff' : '#666'} 
-                        />
-                        <Text style={[
-                          styles.pickerOptionText,
-                          formData.strumento === instrument.value && styles.pickerOptionTextSelected
-                        ]}>
-                          {instrument.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Data di Nascita</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.data_nascita}
+                  onChangeText={(text) => setFormData({ ...formData, data_nascita: text })}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
 
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Note amministratore</Text>
