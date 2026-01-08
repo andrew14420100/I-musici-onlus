@@ -61,11 +61,25 @@ class PaymentStatus(str, Enum):
     OVERDUE = "scaduto"
 
 class PaymentType(str, Enum):
-    STUDENT_FEE = "quota_studente"
+    MONTHLY = "mensile"
+    ANNUAL = "annuale"
     TEACHER_COMPENSATION = "compenso_insegnante"
+
+class NotificationType(str, Enum):
+    GENERAL = "generale"
+    PAYMENT = "pagamento"
+    LESSON = "lezione"
+
+class RecipientType(str, Enum):
+    ALL = "tutti"
+    SPECIFIC = "singoli"
 
 # Instruments list
 INSTRUMENTS = ["pianoforte", "canto", "percussioni", "violino", "chitarra", "chitarra_elettrica"]
+
+# Settings
+PAYMENT_DUE_DAY = 7  # Giorno di scadenza pagamento mensile
+PAYMENT_TOLERANCE_DAYS = 0  # Tolleranza in giorni (configurabile)
 
 # ===================== MODELS =====================
 
