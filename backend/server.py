@@ -106,6 +106,10 @@ class UserCreate(BaseModel):
     password: str  # Plain password, will be hashed
     data_nascita: Optional[str] = None
     note_admin: Optional[str] = None
+    # For students - which teacher they belong to
+    insegnante_id: Optional[str] = None
+    # For teachers - which instrument they teach
+    strumento: Optional[str] = None
 
 class UserUpdate(BaseModel):
     nome: Optional[str] = None
@@ -116,6 +120,8 @@ class UserUpdate(BaseModel):
     attivo: Optional[bool] = None
     first_login: Optional[bool] = None
     note_admin: Optional[str] = None
+    insegnante_id: Optional[str] = None
+    strumento: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
