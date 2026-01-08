@@ -3,7 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start --tunnel --port 3000",
+    "start": "expo start",
     "build": "expo export",
     "test": "jest",
     "expo": "expo start",
