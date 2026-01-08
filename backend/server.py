@@ -187,18 +187,84 @@ class TeacherDetailCreate(BaseModel):
 # Attendance Models
 class Attendance(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    corso_id: Optional[str] = None
+    lezione_id: Optional[str] = None
     allievo_id: str
     insegnante_id: str
     data: datetime
     stato: AttendanceStatus = AttendanceStatus.PRESENT
+    recupero_data: Optional[datetime] = None  # Data di recupero se giustificato
     note: Optional[str] = None
     data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AttendanceCreate(BaseModel):
+    corso_id: Optional[str] = None
+    lezione_id: Optional[str] = None
     allievo_id: str
     data: str  # YYYY-MM-DD format
     stato: AttendanceStatus = AttendanceStatus.PRESENT
+    recupero_data: Optional[str] = None  # YYYY-MM-DD format
     note: Optional[str] = None
+
+# Course Models
+class Course(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    nome: str
+    strumento: str
+    insegnante_id: str
+    descrizione: Optional[str] = None
+    attivo: bool = True
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class CourseCreate(BaseModel):
+    nome: str
+    strumento: str
+    insegnante_id: str
+    descrizione: Optional[str] = None
+
+class CourseUpdate(BaseModel):
+    nome: Optional[str] = None
+    strumento: Optional[str] = None
+    insegnante_id: Optional[str] = None
+    descrizione: Optional[str] = None
+    attivo: Optional[bool] = None
+
+# Lesson Models
+class Lesson(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    corso_id: str
+    insegnante_id: str
+    data: datetime
+    ora: str  # HH:MM format
+    durata: int  # minuti
+    note: Optional[str] = None
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class LessonCreate(BaseModel):
+    corso_id: str
+    insegnante_id: str
+    data: str  # YYYY-MM-DD
+    ora: str  # HH:MM
+    durata: int  # minuti
+
+class LessonUpdate(BaseModel):
+    data: Optional[str] = None
+    ora: Optional[str] = None
+    durata: Optional[int] = None
+    note: Optional[str] = None
+
+# Teacher Compensation Models
+class TeacherCompensation(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    insegnante_id: str
+    corso_id: Optional[str] = None
+    quota_per_presenza: float  # Compenso per ogni presenza
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class TeacherCompensationCreate(BaseModel):
+    insegnante_id: str
+    corso_id: Optional[str] = None
+    quota_per_presenza: float
 
 # Assignment Models
 class Assignment(BaseModel):
