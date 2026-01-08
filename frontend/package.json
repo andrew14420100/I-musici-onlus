@@ -3,9 +3,9 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "craco start",
-    "build": "craco build",
-    "test": "craco test",
+    "start": "expo start --tunnel --port 3000",
+    "build": "expo export",
+    "test": "jest",
     "expo": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
