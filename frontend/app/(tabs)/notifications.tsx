@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { notificationsApi, usersApi, paymentRequestsApi } from '../../src/services/api';
 import { Notification, User, PaymentRequest, NotificationType, PaymentRequestStatus } from '../../src/types';
+import { convertDisplayToAPI, getTodayForDisplay } from '../../src/utils/dateFormat';
 
 export default function NotificationsScreen() {
   const { user: currentUser, isInitialized } = useAuth();
