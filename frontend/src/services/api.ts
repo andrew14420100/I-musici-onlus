@@ -141,12 +141,17 @@ export const attendanceApi = {
     allievo_id: string;
     data: string;
     stato: string;
+    recupero_data?: string;
     note?: string;
   }) => {
     const response = await api.post('/presenze', data);
     return response.data as Attendance;
   },
-  update: async (attendanceId: string, data: { stato?: string; note?: string }) => {
+  update: async (attendanceId: string, data: { 
+    stato?: string; 
+    recupero_data?: string;
+    note?: string;
+  }) => {
     const response = await api.put(`/presenze/${attendanceId}`, data);
     return response.data as Attendance;
   },
