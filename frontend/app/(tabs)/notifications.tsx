@@ -284,8 +284,8 @@ export default function NotificationsScreen() {
       setErrorMessage('Inserisci il messaggio');
       return;
     }
-    if (selectedStudents.length === 0) {
-      setErrorMessage('Seleziona almeno un allievo');
+    if (selectedUsers.length === 0) {
+      setErrorMessage('Seleziona almeno un destinatario');
       return;
     }
 
@@ -294,12 +294,12 @@ export default function NotificationsScreen() {
         titolo: eventForm.titolo,
         messaggio: eventForm.messaggio,
         tipo: NotificationType.EVENT,
-        destinatari_ids: selectedStudents
+        destinatari_ids: selectedUsers
       });
       
-      Alert.alert('Successo', 'Evento creato');
+      Alert.alert('Successo', `Evento inviato a ${selectedUsers.length} destinatari`);
       setShowEventModal(false);
-      setSelectedStudents([]);
+      setSelectedUsers([]);
       setEventForm({ titolo: '', messaggio: '' });
       fetchData();
     } catch (error: any) {
