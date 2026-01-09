@@ -5,375 +5,497 @@ import {
   StyleSheet, 
   ScrollView, 
   RefreshControl,
-  ActivityIndicator
+  ActivityIndicator,
+  TouchableOpacity,
+  Image
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { statsApi, seedApi } from '../../src/services/api';
+import { statsApi, seedApi, adminActionsApi } from '../../src/services/api';
 import { AdminStats } from '../../src/types';
 import { StatCard } from '../../src/components/StatCard';
+import { Colors, Typography, Spacing, BorderRadius, Shadows, Layout } from '../../src/theme';
+import { formatDateForDisplay } from '../../src/utils/dateFormat';
+import { ErrorMessage } from '../../src/components/ErrorMessage';
+import { useRouter } from 'expo-router';
 
-export default function DashboardScreen() {
-  const { user, isLoading: authLoading, isInitialized } = useAuth();
+export default function HomeScreen() {
+  const { user } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [actionLoading, setActionLoading] = useState<string>('');
 
-  const fetchData = async () => {
-    try {
-      // First seed the database
+  const isAdmin = user?.ruolo === 'amministratore';
+  const isTeacher = user?.ruolo === 'insegnante';
+  const isStudent = user?.ruolo === 'allievo';
+
+  const fetchStats = async () => {
+    if (isAdmin) {
       try {
-        await seedApi.seed();
-      } catch (e) {
-        // Ignore if already seeded
-      }
-      
-      // Fetch stats (only for admin)
-      if (user?.ruolo === 'amministratore') {
         const data = await statsApi.getAdminStats();
         setStats(data);
+      } catch (error) {
+        console.error('Error fetching stats:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
+    } else {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
+    fetchStats();
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchData();
+    await fetchStats();
     setRefreshing(false);
   }, []);
 
-  const getRoleLabel = () => {
-    switch (user?.ruolo) {
-      case 'amministratore':
-        return 'Amministratore';
-      case 'insegnante':
-        return 'Insegnante';
-      case 'allievo':
-        return 'Allievo';
-      default:
-        return 'Utente';
+  const handleSeedData = async () => {
+    setSeeding(true);
+    setError('');
+    try {
+      await seedApi.seedDatabase();
+      await fetchStats();
+    } catch (error: any) {
+      console.error('Error seeding:', error);
+      setError(error.response?.data?.detail || 'Errore durante il popolamento del database');
+    } finally {
+      setSeeding(false);
     }
   };
 
-  // Helper to get user initials safely
-  const getUserInitials = () => {
-    if (!user) return '?';
-    const name = user.nome || user.name || '';
-    const cognome = user.cognome || '';
-    if (cognome) {
-      return `${name.charAt(0)}${cognome.charAt(0)}`.toUpperCase();
+  const handleGenerateMonthlyPayments = async () => {
+    setActionLoading('payments');
+    setError('');
+    try {
+      const result = await adminActionsApi.generateMonthlyPayments();
+      alert(`Successo: ${result.message || 'Pagamenti generati'}`);
+      await fetchStats();
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Errore durante la generazione dei pagamenti';
+      setError(errorMsg);
+    } finally {
+      setActionLoading('');
     }
-    return name.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
   };
 
-  // Helper to get display name
-  const getDisplayName = () => {
+  const handleSendPaymentReminders = async () => {
+    setActionLoading('reminders');
+    setError('');
+    try {
+      const result = await adminActionsApi.sendPaymentReminders();
+      alert(`Successo: ${result.message || 'Promemoria inviati'}`);
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Errore durante invio promemoria';
+      setError(errorMsg);
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const navigateToUsers = () => {
+    router.push('/(tabs)/users');
+  };
+
+  const navigateToAttendance = () => {
+    router.push('/(tabs)/attendance');
+  };
+
+  const getUserGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Buongiorno';
+    if (hour < 18) return 'Buon pomeriggio';
+    return 'Buonasera';
+  };
+
+  const getUserDisplayName = () => {
     if (!user) return 'Utente';
-    if (user.nome && user.cognome) {
-      return `${user.nome} ${user.cognome}`;
-    }
-    return user.nome || user.name || user.email || 'Utente';
+    return `${user.nome} ${user.cognome}`;
   };
 
-  // Show loading while auth is initializing or user not ready
-  if (!isInitialized || authLoading || loading || !user) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4A90D9" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
 
-  // Get role icon
-  const getRoleIcon = () => {
-    switch (user?.ruolo) {
-      case 'amministratore':
-        return 'shield-checkmark';
-      case 'insegnante':
-        return 'school';
-      default:
-        return 'person';
-    }
-  };
-
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Welcome Section */}
-      <View style={styles.welcomeSection}>
-        <View style={styles.welcomeContent}>
-          <Text style={styles.welcomeText}>Benvenuto,</Text>
-          <Text style={styles.userName}>{getDisplayName()}</Text>
-          <View style={styles.roleBadge}>
-            <Ionicons 
-              name={getRoleIcon()} 
-              size={14} 
-              color="#4A90D9" 
+    <View style={styles.container}>
+      {/* Header with Gradient */}
+      <LinearGradient
+        colors={[Colors.primary, Colors.primaryLight]}
+        style={styles.headerGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.headerContent}>
+          <View style={styles.userInfo}>
+            <Text style={styles.greeting}>{getUserGreeting()}</Text>
+            <Text style={styles.userName}>{getUserDisplayName()}</Text>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>
+                {isAdmin ? '👑 Amministratore' : isTeacher ? '👨‍🏫 Insegnante' : '🎓 Allievo'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.avatarContainer}>
+            <Image 
+              source={require('../../assets/logo.png')} 
+              style={styles.avatarImage}
+              resizeMode="contain"
             />
-            <Text style={styles.roleText}>{getRoleLabel()}</Text>
           </View>
         </View>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {getUserInitials()}
-          </Text>
-        </View>
-      </View>
+      </LinearGradient>
 
-      {/* Admin Stats */}
-      {user?.ruolo === 'amministratore' && stats && (
-        <View style={styles.statsSection}>
-          <Text style={styles.sectionTitle}>Riepilogo Generale</Text>
-          
-          <View style={styles.statsGrid}>
-            <View style={styles.statsRow}>
-              <View style={styles.statHalf}>
-                <StatCard 
-                  title="Allievi Attivi" 
-                  value={stats.allievi_attivi} 
-                  icon="people" 
-                  color="#4A90D9" 
-                />
+      {/* Content */}
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {isAdmin && stats && (
+          <>
+            {/* Quick Stats */}
+            <View style={styles.statsGrid}>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.admin}15` }]}>
+                  <Ionicons name="people" size={24} color={Colors.admin} />
+                </View>
+                <Text style={styles.statValue}>{stats.totale_utenti}</Text>
+                <Text style={styles.statLabel}>Utenti Totali</Text>
               </View>
-              <View style={styles.statHalf}>
-                <StatCard 
-                  title="Insegnanti Attivi" 
-                  value={stats.insegnanti_attivi} 
-                  icon="school" 
-                  color="#10B981" 
-                />
-              </View>
-            </View>
-            
-            <View style={styles.statsRow}>
-              <View style={styles.statHalf}>
-                <StatCard 
-                  title="Presenze Oggi" 
-                  value={stats.presenze_oggi} 
-                  icon="calendar-outline" 
-                  color="#8B5CF6" 
-                />
-              </View>
-              <View style={styles.statHalf}>
-                <StatCard 
-                  title="Notifiche Attive" 
-                  value={stats.notifiche_attive} 
-                  icon="notifications" 
-                  color="#F59E0B" 
-                />
-              </View>
-            </View>
-          </View>
 
-          {/* Payments Summary */}
-          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Situazione Pagamenti</Text>
-          
-          <View style={styles.paymentsRow}>
-            <View style={[styles.paymentCard, { backgroundColor: '#FEF2F2' }]}>
-              <Ionicons name="alert-circle" size={24} color="#EF4444" />
-              <Text style={styles.paymentValue}>{stats.pagamenti_non_pagati}</Text>
-              <Text style={styles.paymentLabel}>Pagamenti{"\n"}In Sospeso</Text>
-            </View>
-            <View style={[styles.paymentCard, { backgroundColor: '#EBF5FF' }]}>
-              <Ionicons name="notifications" size={24} color="#4A90D9" />
-              <Text style={styles.paymentValue}>{stats.notifiche_attive}</Text>
-              <Text style={styles.paymentLabel}>Notifiche{"\n"}Attive</Text>
-            </View>
-          </View>
-        </View>
-      )}
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.teacher}15` }]}>
+                  <Ionicons name="school" size={24} color={Colors.teacher} />
+                </View>
+                <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
+                <Text style={styles.statLabel}>Insegnanti</Text>
+              </View>
 
-      {/* Non-Admin Welcome */}
-      {user?.ruolo !== 'amministratore' && (
-        <View style={styles.nonAdminSection}>
-          <View style={styles.infoCard}>
-            <Ionicons name="information-circle" size={32} color="#4A90D9" />
-            <Text style={styles.infoTitle}>Area Personale</Text>
-            <Text style={styles.infoText}>
-              Usa le tab in basso per navigare tra le diverse sezioni:{"\n\n"}
-              • <Text style={styles.bold}>Corsi</Text> - I tuoi corsi e lezioni{"\n"}
-              • <Text style={styles.bold}>Pagamenti</Text> - Le tue quote{"\n"}
-              • <Text style={styles.bold}>Avvisi</Text> - Notifiche e comunicazioni
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.student}15` }]}>
+                  <Ionicons name="musical-notes" size={24} color={Colors.student} />
+                </View>
+                <Text style={styles.statValue}>{stats.totale_allievi}</Text>
+                <Text style={styles.statLabel}>Allievi</Text>
+              </View>
+
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.success}15` }]}>
+                  <Ionicons name="cash" size={24} color={Colors.success} />
+                </View>
+                <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
+                <Text style={styles.statLabel}>Incassi</Text>
+              </View>
+            </View>
+
+            {/* Action Cards */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Azioni Rapide</Text>
+              
+              <TouchableOpacity 
+                style={styles.actionCard} 
+                onPress={navigateToUsers}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.primary}15` }]}>
+                  <Ionicons name="person-add" size={28} color={Colors.primary} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Nuovo Utente</Text>
+                  <Text style={styles.actionDesc}>Aggiungi allievo o insegnante</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionCard} 
+                onPress={navigateToAttendance}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.accent}15` }]}>
+                  <Ionicons name="calendar" size={28} color={Colors.accent} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Registro Presenze</Text>
+                  <Text style={styles.actionDesc}>Gestisci lezioni e presenze</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionCard}
+                onPress={handleGenerateMonthlyPayments}
+                disabled={actionLoading === 'payments'}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.warning}15` }]}>
+                  <Ionicons name="cash" size={28} color={Colors.warning} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Genera Pagamenti Mensili</Text>
+                  <Text style={styles.actionDesc}>Crea pagamenti per tutti gli allievi</Text>
+                </View>
+                {actionLoading === 'payments' ? (
+                  <ActivityIndicator color={Colors.warning} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionCard}
+                onPress={handleSendPaymentReminders}
+                disabled={actionLoading === 'reminders'}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.error}15` }]}>
+                  <Ionicons name="notifications" size={28} color={Colors.error} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Invia Promemoria Pagamenti</Text>
+                  <Text style={styles.actionDesc}>Notifica allievi con pagamenti in sospeso</Text>
+                </View>
+                {actionLoading === 'reminders' ? (
+                  <ActivityIndicator color={Colors.error} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.actionCard, styles.seedCard]}
+                onPress={handleSeedData}
+                disabled={seeding}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.success}15` }]}>
+                  <Ionicons name="refresh" size={28} color={Colors.success} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Popola Database</Text>
+                  <Text style={styles.actionDesc}>Genera dati di test</Text>
+                </View>
+                {seeding ? (
+                  <ActivityIndicator color={Colors.success} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                )}
+              </TouchableOpacity>
+
+              {error && <ErrorMessage message={error} />}
+            </View>
+          </>
+        )}
+
+        {(isTeacher || isStudent) && (
+          <View style={styles.welcomeCard}>
+            <Ionicons name="musical-notes" size={48} color={Colors.primary} />
+            <Text style={styles.welcomeTitle}>Benvenuto!</Text>
+            <Text style={styles.welcomeText}>
+              {isTeacher 
+                ? 'Usa le tab in basso per gestire le tue lezioni e presenze.'
+                : 'Qui puoi visualizzare i tuoi corsi, presenze e pagamenti.'}
             </Text>
           </View>
-        </View>
-      )}
-
-      <View style={{ height: 30 }} />
-    </ScrollView>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: Colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: Colors.background,
   },
-  welcomeSection: {
+  
+  // Header
+  headerGradient: {
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.xxl,
+    paddingHorizontal: Spacing.xl,
+    ...Shadows.medium,
+  },
+  headerContent: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    alignItems: 'center',
   },
-  welcomeContent: {
+  userInfo: {
     flex: 1,
   },
-  welcomeText: {
-    fontSize: 14,
-    color: '#666',
+  greeting: {
+    fontSize: Typography.fontSize.caption,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: Typography.fontWeight.medium,
   },
   userName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 2,
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.surface,
+    marginTop: Spacing.xs,
   },
   roleBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EBF5FF',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
     alignSelf: 'flex-start',
-    marginTop: 8,
+    marginTop: Spacing.sm,
   },
   roleText: {
-    fontSize: 12,
-    color: '#4A90D9',
-    fontWeight: '500',
-    marginLeft: 4,
+    fontSize: Typography.fontSize.small,
+    color: Colors.surface,
+    fontWeight: Typography.fontWeight.medium,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#4A90D9',
+  avatarContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
+    ...Shadows.large,
   },
-  avatarText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
+  avatarImage: {
+    width: 64,
+    height: 64,
   },
-  statsSection: {
-    padding: 16,
+
+  // Content
+  scrollView: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: Spacing.xl,
+  },
+
+  // Stats Grid
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    ...Shadows.medium,
+  },
+  statIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  statValue: {
+    fontSize: Typography.fontSize.h1,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  statLabel: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+
+  // Section
+  section: {
+    marginBottom: Spacing.xl,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
+    fontSize: Typography.fontSize.h3,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.lg,
   },
-  statsGrid: {
-    gap: 8,
-  },
-  statsRow: {
+
+  // Action Cards
+  actionCard: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  statHalf: {
-    flex: 1,
-  },
-  paymentsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  paymentCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 14,
     alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    ...Shadows.medium,
   },
-  paymentValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 8,
+  seedCard: {
+    borderWidth: 1,
+    borderColor: Colors.success,
+    borderStyle: 'dashed',
   },
-  paymentLabel: {
-    fontSize: 11,
-    color: '#666',
+  actionIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.lg,
+  },
+  actionContent: {
+    flex: 1,
+  },
+  actionTitle: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  actionDesc: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+  },
+
+  // Welcome Card
+  welcomeCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xxl,
+    alignItems: 'center',
+    ...Shadows.large,
+  },
+  welcomeTitle: {
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.textPrimary,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  welcomeText: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.textSecondary,
     textAlign: 'center',
-    marginTop: 4,
-  },
-  todayLessons: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-  },
-  lessonItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  lessonTime: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: 80,
-  },
-  lessonTimeText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    marginLeft: 6,
-  },
-  lessonInfo: {
-    flex: 1,
-  },
-  lessonDuration: {
-    fontSize: 13,
-    color: '#666',
-  },
-  nonAdminSection: {
-    padding: 16,
-  },
-  infoCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-  },
-  infoTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 12,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 12,
-    lineHeight: 22,
-  },
-  bold: {
-    fontWeight: '600',
-    color: '#333',
+    lineHeight: Typography.fontSize.body * 1.5,
   },
 });

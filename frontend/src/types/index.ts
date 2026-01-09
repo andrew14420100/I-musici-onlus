@@ -25,7 +25,22 @@ export enum PaymentType {
 export enum NotificationType {
   GENERAL = 'generale',
   PAYMENT = 'pagamento',
-  LESSON = 'lezione'
+  LESSON = 'lezione',
+  PAYMENT_REQUEST = 'pagamenti_da_effettuare',
+  EVENT = 'eventi'
+}
+
+export enum PaymentRequestStatus {
+  PENDING = 'in_attesa',
+  CONFIRMED = 'confermato',
+  APPROVED = 'approvato',
+  REJECTED = 'rifiutato'
+}
+
+export enum LessonSlotStatus {
+  AVAILABLE = 'disponibile',
+  BOOKED = 'prenotato',
+  CANCELLED = 'annullato'
 }
 
 export enum RecipientType {
@@ -127,6 +142,48 @@ export interface Assignment {
   data_scadenza: string;
   completato: boolean;
   data_creazione: string;
+}
+
+export interface PaymentRequest {
+  id: string;
+  utente_id: string;
+  importo: number;
+  causale: string;
+  scadenza: string;
+  note?: string;
+  stato: PaymentRequestStatus;
+  data_creazione: string;
+  data_conferma_allievo?: string;
+  data_approvazione_admin?: string;
+  note_allievo?: string;
+  notification_id?: string;
+  utente?: {
+    nome: string;
+    cognome: string;
+    email: string;
+  };
+}
+
+export interface LessonSlot {
+  id: string;
+  insegnante_id: string;
+  strumento: string;
+  data: string;
+  ora: string;  // Orario lezione (es. "15:00")
+  durata: number;
+  stato: LessonSlotStatus | string;
+  allievo_id?: string;
+  note?: string;
+  data_creazione: string;
+  data_prenotazione?: string;
+  insegnante?: {
+    nome: string;
+    cognome: string;
+  };
+  allievo?: {
+    nome: string;
+    cognome: string;
+  };
 }
 
 export interface Payment {

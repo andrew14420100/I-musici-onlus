@@ -99,6 +99,26 @@ export const usersApi = {
     const response = await api.post(`/utenti/${userId}/dettaglio-insegnante`, data);
     return response.data;
   },
+  // Check duplicates
+  checkDuplicates: async (data: {
+    email?: string;
+    nome?: string;
+    cognome?: string;
+    data_nascita?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (data.email) params.append('email', data.email);
+    if (data.nome) params.append('nome', data.nome);
+    if (data.cognome) params.append('cognome', data.cognome);
+    if (data.data_nascita) params.append('data_nascita', data.data_nascita);
+    const response = await api.get(`/utenti/check-duplicates?${params}`);
+    return response.data as { exists: boolean; message?: string };
+  },
+  // Get users by role
+  getByRole: async (role: string) => {
+    const response = await api.get(`/utenti?ruolo=${role}`);
+    return response.data;
+  },
 };
 
 // Attendance
@@ -201,6 +221,19 @@ export const paymentsApi = {
   delete: async (paymentId: string) => {
     await api.delete(`/pagamenti/${paymentId}`);
   },
+  updateStatus: async (paymentId: string, stato: string) => {
+    const response = await api.put(`/pagamenti/${paymentId}/stato`, { stato });
+    return response.data;
+  },
+  createCash: async (data: {
+    allievo_id: string;
+    importo: number;
+    causale: string;
+    note?: string;
+  }) => {
+    const response = await api.post('/pagamenti/contanti', data);
+    return response.data;
+  },
 };
 
 // Notifications
@@ -213,7 +246,9 @@ export const notificationsApi = {
     titolo: string;
     messaggio: string;
     tipo?: string;
+    destinatari_tipo?: string;
     destinatari_ids?: string[];
+    filtro_pagamento?: string;
   }) => {
     const response = await api.post('/notifiche', data);
     return response.data as Notification;
@@ -227,11 +262,132 @@ export const notificationsApi = {
   },
 };
 
+// Payment Requests (In-app Payment Flow)
+export const paymentRequestsApi = {
+  getAll: async () => {
+    const response = await api.get('/richieste-pagamento');
+    return response.data;
+  },
+  create: async (data: {
+    destinatari_ids: string[];
+    importo: number;
+    causale: string;
+    scadenza: string;
+    note?: string;
+  }) => {
+    const response = await api.post('/richieste-pagamento', data);
+    return response.data;
+  },
+  confirm: async (requestId: string, noteAllievo?: string) => {
+    const response = await api.put(`/richieste-pagamento/${requestId}/conferma`, {
+      note_allievo: noteAllievo || ''
+    });
+    return response.data;
+  },
+  approve: async (requestId: string) => {
+    const response = await api.put(`/richieste-pagamento/${requestId}/approva`, {});
+    return response.data;
+  },
+  reject: async (requestId: string, motivo?: string) => {
+    const response = await api.put(`/richieste-pagamento/${requestId}/rifiuta`, {
+      motivo: motivo || ''
+    });
+    return response.data;
+  },
+};
+
+// Lesson Slots / Calendar
+export const lessonSlotsApi = {
+  getAll: async (filters?: {
+    from_date?: string;
+    to_date?: string;
+    insegnante_id?: string;
+    strumento?: string;
+    stato?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    const response = await api.get(`/slot-lezioni?${params}`);
+    return response.data;
+  },
+  create: async (data: {
+    insegnante_id: string;
+    strumento: string;
+    data: string;
+    ora: string;
+    durata: number;
+  }) => {
+    const response = await api.post('/slot-lezioni', data);
+    return response.data;
+  },
+  update: async (slotId: string, data: {
+    insegnante_id?: string;
+    strumento?: string;
+    data?: string;
+    ora?: string;
+    durata?: number;
+    note?: string;
+  }) => {
+    const response = await api.put(`/slot-lezioni/${slotId}`, data);
+    return response.data;
+  },
+  delete: async (slotId: string) => {
+    const response = await api.delete(`/slot-lezioni/${slotId}`);
+    return response.data;
+  },
+  book: async (slotId: string, allievoId?: string) => {
+    const response = await api.post(`/slot-lezioni/${slotId}/prenota`, {
+      allievo_id: allievoId
+    });
+    return response.data;
+  },
+  cancelBooking: async (slotId: string) => {
+    const response = await api.post(`/slot-lezioni/${slotId}/annulla`, {});
+    return response.data;
+  },
+  sendNotification: async (slotId: string, recipients: string[]) => {
+    const response = await api.post(`/slot-lezioni/${slotId}/notifica`, {
+      destinatari: recipients
+    });
+    return response.data;
+  },
+
+};
+
 // Teacher specific
 export const teacherApi = {
   getStudents: async () => {
     const response = await api.get('/insegnante/allievi');
     return response.data as User[];
+  },
+};
+
+// Secretary permissions
+export const secretaryApi = {
+  getPermissions: async (userId: string) => {
+    const response = await api.get(`/segretaria/${userId}/permessi`);
+    return response.data;
+  },
+  updatePermissions: async (userId: string, permissions: any) => {
+    const response = await api.put(`/segretaria/${userId}/permessi`, permissions);
+    return response.data;
+  },
+};
+
+// Admin quick actions
+export const adminActionsApi = {
+  generateMonthlyPayments: async () => {
+    const response = await api.post('/admin/azioni/genera-pagamenti-mensili');
+    return response.data;
+  },
+  sendPaymentReminders: async () => {
+    const response = await api.post('/admin/azioni/invia-promemoria-pagamenti');
+    return response.data;
+
   },
 };
 

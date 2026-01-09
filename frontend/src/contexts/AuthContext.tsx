@@ -8,7 +8,7 @@ interface AuthContextType {
   isLoading: boolean;
   isInitialized: boolean;
   isAuthenticated: boolean;
-  loginWithCredentials: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithCredentials: (email: string, password: string, requiredRole?: string) => Promise<{ success: boolean; error?: string; user?: User }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -55,12 +55,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsLoading(true);
       setIsInitialized(false);
       
-      // First seed the database (silent)
-      try {
-        await seedApi.seed();
-      } catch (e) {
-        // Ignore
-      }
+      // DO NOT seed automatically - let admin manage users manually
+      // The seed was creating test users every time the app loaded
 
       // Check existing session
       await checkExistingSession();
@@ -73,23 +69,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     init();
   }, []);
 
-  const loginWithCredentials = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const loginWithCredentials = async (email: string, password: string, requiredRole?: string): Promise<{ success: boolean; error?: string; user?: User }> => {
     try {
       console.log('Attempting login for:', email);
-      const response = await authApi.login(email, password);
+      
+      // Aggiungo timeout di 10 secondi per evitare loop infiniti
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout: il server non risponde')), 10000);
+      });
+      
+      const loginPromise = authApi.login(email, password);
+      const response = await Promise.race([loginPromise, timeoutPromise]);
       
       if (response.token) {
+        // Se è richiesto un ruolo specifico, verifica prima di salvare il token
+        if (requiredRole && response.user.ruolo !== requiredRole) {
+          console.log(`Role mismatch: user is ${response.user.ruolo} but ${requiredRole} is required`);
+          return { 
+            success: false, 
+            error: `Queste credenziali appartengono a un ${response.user.ruolo}, non a ${requiredRole}.`,
+            user: response.user 
+          };
+        }
+        
         await AsyncStorage.setItem('session_token', response.token);
         setUser(response.user);
         console.log('Login successful for:', response.user.email);
-        return { success: true };
+        return { success: true, user: response.user };
       }
       return { success: false, error: 'Token non ricevuto' };
     } catch (error: any) {
       console.error('Login error:', error.response?.data || error.message);
+      const errorMessage = error.message === 'Timeout: il server non risponde' 
+        ? 'Il server non risponde. Verifica la connessione.'
+        : error.response?.data?.detail || 'Credenziali non valide o errore di connessione';
       return { 
         success: false, 
-        error: error.response?.data?.detail || 'Errore durante il login' 
+        error: errorMessage
       };
     }
   };

@@ -1,48 +1,67 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   RefreshControl,
   ActivityIndicator,
   TouchableOpacity,
   TextInput,
   Modal,
-  Alert
+  Pressable,
+  Platform,
+  Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { usersApi } from '../../src/services/api';
-import { User, INSTRUMENTS } from '../../src/types';
+import { User, UserRole } from '../../src/types';
+import { Colors, Typography, Spacing, BorderRadius, Shadows, Layout } from '../../src/theme';
+
+interface UserFormData {
+  nome: string;
+  cognome: string;
+  email: string;
+  password: string;
+  ruolo: UserRole;
+  note_admin?: string;
+}
+
+const initialFormData: UserFormData = {
+  nome: '',
+  cognome: '',
+  email: '',
+  password: '',
+  ruolo: UserRole.STUDENT,
+  note_admin: '',
+};
 
 export default function UsersScreen() {
-  const { user: currentUser, isInitialized } = useAuth();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'allievo' | 'insegnante'>('allievo');
   const [searchQuery, setSearchQuery] = useState('');
-  const [modalVisible, setModalVisible] = useState(false);
-  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-  const [userToDelete, setUserToDelete] = useState<User | null>(null);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState({
-    nome: '',
-    cognome: '',
-    email: '',
-    password: '',
-    ruolo: 'allievo' as string,
-    data_nascita: '',
-    note_admin: '',
-    insegnante_id: '',  // For students: which teacher
-    strumento: '',      // For teachers: which instrument
-  });
+  const [selectedRole, setSelectedRole] = useState<'tutti' | UserRole>('tutti');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  
+  // CRUD States
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [formData, setFormData] = useState<UserFormData>(initialFormData);
+  const [formErrors, setFormErrors] = useState<Partial<UserFormData>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const isAdmin = currentUser?.ruolo === UserRole.ADMIN;
 
   const fetchUsers = async () => {
     try {
-      const data = await usersApi.getAll();
-      setUsers(data);
+      const allUsers = await usersApi.getAll();
+      setUsers(allUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {
@@ -51,570 +70,676 @@ export default function UsersScreen() {
   };
 
   useEffect(() => {
-    if (currentUser?.ruolo === 'amministratore') {
-      fetchUsers();
-    } else {
-      setLoading(false);
-    }
-  }, [currentUser]);
+    fetchUsers();
+  }, []);
 
-  const onRefresh = useCallback(async () => {
+  const onRefresh = async () => {
     setRefreshing(true);
     await fetchUsers();
     setRefreshing(false);
-  }, []);
-
-  // Get teachers list for student assignment
-  const teachers = users.filter(u => u.ruolo === 'insegnante' && u.attivo);
-  
-  // Get students list
-  const students = users.filter(u => u.ruolo === 'allievo');
-
-  const filteredUsers = users.filter(u => {
-    const matchesTab = u.ruolo === activeTab;
-    const fullName = `${u.nome} ${u.cognome}`.toLowerCase();
-    const matchesSearch = searchQuery === '' || 
-      fullName.includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesTab && matchesSearch;
-  });
-
-  const openCreateModal = (ruolo: 'allievo' | 'insegnante') => {
-    setEditingUser(null);
-    setFormData({
-      nome: '',
-      cognome: '',
-      email: '',
-      password: '',
-      ruolo: ruolo,
-      data_nascita: '',
-      note_admin: '',
-      insegnante_id: teachers[0]?.id || '',
-      strumento: INSTRUMENTS[0]?.value || '',
-    });
-    setModalVisible(true);
   };
 
-  const openEditModal = (user: User) => {
-    setEditingUser(user);
+  // CRUD Functions
+  const validateForm = (): boolean => {
+    const errors: Partial<UserFormData> = {};
+    
+    if (!formData.nome.trim()) errors.nome = 'Nome richiesto';
+    if (!formData.cognome.trim()) errors.cognome = 'Cognome richiesto';
+    if (!formData.email.trim()) {
+      errors.email = 'Email richiesta';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Email non valida';
+    }
+    if (!showEditModal && !formData.password.trim()) {
+      errors.password = 'Password richiesta';
+    } else if (!showEditModal && formData.password.length < 6) {
+      errors.password = 'Min. 6 caratteri';
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleOpenAddModal = () => {
+    setFormData(initialFormData);
+    setFormErrors({});
+    setShowAddModal(true);
+  };
+
+  const handleOpenEditModal = (user: User) => {
+    setSelectedUser(user);
     setFormData({
       nome: user.nome,
       cognome: user.cognome,
       email: user.email,
       password: '',
-      ruolo: user.ruolo,
-      data_nascita: (user as any).data_nascita || '',
+      ruolo: user.ruolo as UserRole,
       note_admin: user.note_admin || '',
-      insegnante_id: (user as any).insegnante_id || '',
-      strumento: (user as any).strumento || '',
     });
-    setModalVisible(true);
+    setFormErrors({});
+    setShowEditModal(true);
   };
 
-  const handleSave = async () => {
-    if (!formData.nome.trim() || !formData.cognome.trim()) {
-      Alert.alert('Errore', 'Nome e cognome sono obbligatori');
-      return;
-    }
-    if (!editingUser && !formData.email.trim()) {
-      Alert.alert('Errore', 'Email è obbligatoria');
-      return;
-    }
-    if (!editingUser && !formData.password.trim()) {
-      Alert.alert('Errore', 'Password è obbligatoria per i nuovi utenti');
-      return;
-    }
-    if (!editingUser && formData.password.length < 6) {
-      Alert.alert('Errore', 'La password deve essere di almeno 6 caratteri');
-      return;
-    }
-    // Validate teacher selection for students
-    if (formData.ruolo === 'allievo' && !formData.insegnante_id) {
-      Alert.alert('Errore', 'Seleziona un insegnante per l\'allievo');
-      return;
-    }
-    // Validate instrument for teachers
-    if (formData.ruolo === 'insegnante' && !formData.strumento) {
-      Alert.alert('Errore', 'Seleziona uno strumento per l\'insegnante');
-      return;
-    }
+  const handleOpenDeleteModal = (user: User) => {
+    setSelectedUser(user);
+    setShowDeleteModal(true);
+  };
 
+  const handleCreateUser = async () => {
+    if (!validateForm()) return;
+    
+    setSubmitting(true);
     try {
-      if (editingUser) {
-        const updateData: any = {
-          nome: formData.nome,
-          cognome: formData.cognome,
-          data_nascita: formData.data_nascita || undefined,
-          note_admin: formData.note_admin || undefined,
-        };
-        if (formData.password.trim()) {
-          updateData.password = formData.password;
-        }
-        // Update teacher assignment for students
-        if (editingUser.ruolo === 'allievo') {
-          updateData.insegnante_id = formData.insegnante_id;
-        }
-        // Update instrument for teachers
-        if (editingUser.ruolo === 'insegnante') {
-          updateData.strumento = formData.strumento;
-        }
-        await usersApi.update(editingUser.id, updateData);
-        Alert.alert('Successo', 'Utente modificato con successo');
-      } else {
-        const createData: any = {
-          ruolo: formData.ruolo,
-          nome: formData.nome,
-          cognome: formData.cognome,
-          email: formData.email,
-          password: formData.password,
-          data_nascita: formData.data_nascita || undefined,
-          note_admin: formData.note_admin || undefined,
-        };
-        // Add teacher assignment for students
-        if (formData.ruolo === 'allievo') {
-          createData.insegnante_id = formData.insegnante_id;
-        }
-        // Add instrument for teachers
-        if (formData.ruolo === 'insegnante') {
-          createData.strumento = formData.strumento;
-        }
-        await usersApi.create(createData);
-        Alert.alert('Successo', `${formData.ruolo === 'allievo' ? 'Allievo' : 'Insegnante'} creato con successo`);
+      await usersApi.create({
+        nome: formData.nome.trim(),
+        cognome: formData.cognome.trim(),
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
+        ruolo: formData.ruolo,
+        note_admin: formData.note_admin?.trim(),
+      });
+      setShowAddModal(false);
+      await fetchUsers();
+      Alert.alert('Successo', 'Utente creato con successo');
+    } catch (error: any) {
+      console.error('Error creating user:', error);
+      Alert.alert('Errore', error.response?.data?.detail || 'Impossibile creare utente');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdateUser = async () => {
+    if (!validateForm() || !selectedUser) return;
+    
+    setSubmitting(true);
+    try {
+      const updateData: any = {
+        nome: formData.nome.trim(),
+        cognome: formData.cognome.trim(),
+        email: formData.email.trim().toLowerCase(),
+        ruolo: formData.ruolo,
+        note_admin: formData.note_admin?.trim(),
+      };
+      if (formData.password.trim()) {
+        updateData.password = formData.password;
       }
-      setModalVisible(false);
-      fetchUsers();
+      await usersApi.update(selectedUser.id, updateData);
+      setShowEditModal(false);
+      setSelectedUser(null);
+      await fetchUsers();
+      Alert.alert('Successo', 'Utente aggiornato con successo');
     } catch (error: any) {
-      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+      console.error('Error updating user:', error);
+      Alert.alert('Errore', error.response?.data?.detail || 'Impossibile aggiornare utente');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleToggleStatus = async (user: User) => {
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return;
+    
+    setSubmitting(true);
     try {
-      const newStatus = !user.attivo;
-      await usersApi.update(user.id, { attivo: newStatus });
-      Alert.alert('Successo', `Utente ${newStatus ? 'attivato' : 'disattivato'}`);
-      fetchUsers();
+      await usersApi.delete(selectedUser.id);
+      setShowDeleteModal(false);
+      setSelectedUser(null);
+      await fetchUsers();
+      Alert.alert('Successo', 'Utente eliminato con successo');
     } catch (error: any) {
-      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+      console.error('Error deleting user:', error);
+      Alert.alert('Errore', error.response?.data?.detail || 'Impossibile eliminare utente');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const openDeleteModal = (user: User) => {
-    setUserToDelete(user);
-    setDeleteModalVisible(true);
-  };
-
-  const confirmDelete = async () => {
-    if (!userToDelete) return;
-    try {
-      await usersApi.delete(userToDelete.id);
-      setDeleteModalVisible(false);
-      setUserToDelete(null);
-      Alert.alert('Eliminato!', 'L\'utente è stato rimosso con successo');
-      fetchUsers();
-    } catch (error: any) {
-      Alert.alert('Errore', error.response?.data?.detail || 'Si è verificato un errore');
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case UserRole.ADMIN:
+        return Colors.admin;
+      case UserRole.TEACHER:
+        return Colors.teacher;
+      case UserRole.STUDENT:
+        return Colors.student;
+      default:
+        return Colors.textSecondary;
     }
   };
 
-  // Helper to get teacher name
-  const getTeacherName = (teacherId: string) => {
-    const teacher = teachers.find(t => t.id === teacherId);
-    return teacher ? `${teacher.nome} ${teacher.cognome}` : 'Non assegnato';
+  const getRoleIcon = (role: string): keyof typeof Ionicons.glyphMap => {
+    switch (role) {
+      case UserRole.ADMIN:
+        return 'shield-checkmark';
+      case UserRole.TEACHER:
+        return 'school';
+      case UserRole.STUDENT:
+        return 'musical-notes';
+      default:
+        return 'person';
+    }
   };
 
-  // Helper to get instrument label
-  const getInstrumentLabel = (value: string) => {
-    const instrument = INSTRUMENTS.find(i => i.value === value);
-    return instrument ? instrument.label : value;
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case UserRole.ADMIN:
+        return 'Admin';
+      case UserRole.TEACHER:
+        return 'Insegnante';
+      case UserRole.STUDENT:
+        return 'Allievo';
+      default:
+        return role;
+    }
   };
 
-  if (!isInitialized || loading) {
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = 
+      user.nome.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.cognome.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesRole = selectedRole === 'tutti' || user.ruolo === selectedRole;
+    
+    return matchesSearch && matchesRole;
+  });
+
+  const roleStats = {
+    admin: users.filter(u => u.ruolo === UserRole.ADMIN).length,
+    teachers: users.filter(u => u.ruolo === UserRole.TEACHER).length,
+    students: users.filter(u => u.ruolo === UserRole.STUDENT).length,
+  };
+
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4A90D9" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
-
-  if (currentUser?.ruolo !== 'amministratore') {
-    return (
-      <View style={styles.noAccessContainer}>
-        <Ionicons name="lock-closed" size={64} color="#ccc" />
-        <Text style={styles.noAccessText}>Accesso riservato agli amministratori</Text>
-      </View>
-    );
-  }
-
-  const studentsCount = users.filter(u => u.ruolo === 'allievo').length;
-  const teachersCount = users.filter(u => u.ruolo === 'insegnante').length;
 
   return (
     <View style={styles.container}>
-      {/* Action Buttons */}
-      <View style={styles.actionsBar}>
-        <TouchableOpacity 
-          style={styles.actionButton} 
-          onPress={() => openCreateModal('allievo')}
-        >
-          <Ionicons name="person-add" size={18} color="#fff" />
-          <Text style={styles.actionButtonText}>Nuovo Allievo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.actionButton, { backgroundColor: '#10B981' }]} 
-          onPress={() => openCreateModal('insegnante')}
-        >
-          <Ionicons name="school" size={18} color="#fff" />
-          <Text style={styles.actionButtonText}>Nuovo Insegnante</Text>
-        </TouchableOpacity>
+      {/* Stats Header */}
+      <View style={styles.statsContainer}>
+        <View style={[styles.statCard, { backgroundColor: Colors.admin + '15' }]}>
+          <Ionicons name="shield-checkmark" size={20} color={Colors.admin} />
+          <Text style={[styles.statNumber, { color: Colors.admin }]}>{roleStats.admin}</Text>
+          <Text style={styles.statLabel}>Admin</Text>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: Colors.teacher + '15' }]}>
+          <Ionicons name="school" size={20} color={Colors.teacher} />
+          <Text style={[styles.statNumber, { color: Colors.teacher }]}>{roleStats.teachers}</Text>
+          <Text style={styles.statLabel}>Insegnanti</Text>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: Colors.student + '15' }]}>
+          <Ionicons name="musical-notes" size={20} color={Colors.student} />
+          <Text style={[styles.statNumber, { color: Colors.student }]}>{roleStats.students}</Text>
+          <Text style={styles.statLabel}>Allievi</Text>
+        </View>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'allievo' && styles.activeTab]}
-          onPress={() => setActiveTab('allievo')}
-        >
-          <Text style={[styles.tabText, activeTab === 'allievo' && styles.activeTabText]}>
-            Allievi ({studentsCount})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'insegnante' && styles.activeTab]}
-          onPress={() => setActiveTab('insegnante')}
-        >
-          <Text style={[styles.tabText, activeTab === 'insegnante' && styles.activeTabText]}>
-            Insegnanti ({teachersCount})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Search */}
+      {/* Search & Filter */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Cerca per nome o email..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery !== '' && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color="#999" />
-          </TouchableOpacity>
-        )}
+        <View style={styles.searchInputContainer}>
+          <Ionicons name="search" size={20} color={Colors.textSecondary} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Cerca utente..."
+            placeholderTextColor={Colors.textTertiary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+        <TouchableOpacity 
+          style={styles.filterButton}
+          onPress={() => setShowFilterModal(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="options" size={20} color={Colors.surface} />
+        </TouchableOpacity>
       </View>
 
-      {/* Users List */}
-      <ScrollView 
-        style={styles.listContainer}
+      {/* User List */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
+        showsVerticalScrollIndicator={false}
       >
         {filteredUsers.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={48} color="#ccc" />
-            <Text style={styles.emptyText}>
-              {searchQuery ? 'Nessun risultato' : `Nessun ${activeTab === 'allievo' ? 'allievo' : 'insegnante'}`}
-            </Text>
+            <Ionicons name="people-outline" size={64} color={Colors.textTertiary} />
+            <Text style={styles.emptyTitle}>Nessun utente</Text>
+            <Text style={styles.emptyText}>Nessun utente trovato</Text>
           </View>
         ) : (
           filteredUsers.map(user => (
             <View key={user.id} style={styles.userCard}>
-              <View style={styles.userAvatar}>
-                <Text style={styles.userAvatarText}>
-                  {user.nome.charAt(0)}{user.cognome.charAt(0)}
-                </Text>
-              </View>
-              <View style={styles.userInfo}>
-                <Text style={styles.userName}>{user.nome} {user.cognome}</Text>
-                <Text style={styles.userEmail}>{user.email}</Text>
+              <View style={styles.userCardContent}>
+                <View style={[styles.userIconContainer, { backgroundColor: getRoleColor(user.ruolo) + '15' }]}>
+                  <Ionicons name={getRoleIcon(user.ruolo)} size={24} color={getRoleColor(user.ruolo)} />
+                </View>
                 
-                {/* Show teacher for students */}
-                {user.ruolo === 'allievo' && (user as any).insegnante_id && (
-                  <View style={styles.assignmentBadge}>
-                    <Ionicons name="school" size={12} color="#4A90D9" />
-                    <Text style={styles.assignmentText}>
-                      {getTeacherName((user as any).insegnante_id)}
+                <View style={styles.userInfo}>
+                  <Text style={styles.userName} numberOfLines={1}>{user.nome} {user.cognome}</Text>
+                  <Text style={styles.userEmail} numberOfLines={1}>{user.email}</Text>
+                  <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.ruolo) + '20' }]}>
+                    <Text style={[styles.roleText, { color: getRoleColor(user.ruolo) }]}>
+                      {getRoleLabel(user.ruolo)}
                     </Text>
                   </View>
-                )}
-                
-                {/* Show instrument for teachers */}
-                {user.ruolo === 'insegnante' && (user as any).strumento && (
-                  <View style={[styles.assignmentBadge, { backgroundColor: '#FEF3C7' }]}>
-                    <Ionicons name="musical-notes" size={12} color="#F59E0B" />
-                    <Text style={[styles.assignmentText, { color: '#F59E0B' }]}>
-                      {getInstrumentLabel((user as any).strumento)}
-                    </Text>
-                  </View>
-                )}
-                
-                <View style={[styles.statusBadge, { backgroundColor: user.attivo ? '#D1FAE5' : '#FEE2E2' }]}>
-                  <Text style={[styles.statusText, { color: user.attivo ? '#065F46' : '#DC2626' }]}>
-                    {user.attivo ? 'Attivo' : 'Disattivato'}
-                  </Text>
                 </View>
               </View>
-              <View style={styles.userActions}>
-                <TouchableOpacity 
-                  style={styles.userActionBtn}
-                  onPress={() => openEditModal(user)}
-                >
-                  <Ionicons name="pencil" size={18} color="#4A90D9" />
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.userActionBtn}
-                  onPress={() => handleToggleStatus(user)}
-                >
-                  <Ionicons 
-                    name={user.attivo ? 'pause-circle' : 'play-circle'} 
-                    size={18} 
-                    color={user.attivo ? '#F59E0B' : '#10B981'} 
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.userActionBtn}
-                  onPress={() => openDeleteModal(user)}
-                >
-                  <Ionicons name="trash" size={18} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
+              
+              {/* Action Buttons - Only for Admin */}
+              {isAdmin && (
+                <View style={styles.userActions}>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.editButton]}
+                    onPress={() => handleOpenEditModal(user)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="create-outline" size={18} color={Colors.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.deleteButton]}
+                    onPress={() => handleOpenDeleteModal(user)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           ))
         )}
-        <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowFilterModal(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filtra per Ruolo</Text>
+              <TouchableOpacity onPress={() => setShowFilterModal(false)} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.filterOption, selectedRole === 'tutti' && styles.filterOptionActive]}
+              onPress={() => { setSelectedRole('tutti'); setShowFilterModal(false); }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="people" size={24} color={selectedRole === 'tutti' ? Colors.primary : Colors.textSecondary} />
+              <Text style={[styles.filterOptionText, selectedRole === 'tutti' && styles.filterOptionTextActive]}>Tutti</Text>
+              {selectedRole === 'tutti' && <Ionicons name="checkmark" size={20} color={Colors.primary} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.filterOption, selectedRole === UserRole.ADMIN && styles.filterOptionActive]}
+              onPress={() => { setSelectedRole(UserRole.ADMIN); setShowFilterModal(false); }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="shield-checkmark" size={24} color={selectedRole === UserRole.ADMIN ? Colors.admin : Colors.textSecondary} />
+              <Text style={[styles.filterOptionText, selectedRole === UserRole.ADMIN && styles.filterOptionTextActive]}>Amministratori</Text>
+              {selectedRole === UserRole.ADMIN && <Ionicons name="checkmark" size={20} color={Colors.admin} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.filterOption, selectedRole === UserRole.TEACHER && styles.filterOptionActive]}
+              onPress={() => { setSelectedRole(UserRole.TEACHER); setShowFilterModal(false); }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="school" size={24} color={selectedRole === UserRole.TEACHER ? Colors.teacher : Colors.textSecondary} />
+              <Text style={[styles.filterOptionText, selectedRole === UserRole.TEACHER && styles.filterOptionTextActive]}>Insegnanti</Text>
+              {selectedRole === UserRole.TEACHER && <Ionicons name="checkmark" size={20} color={Colors.teacher} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.filterOption, selectedRole === UserRole.STUDENT && styles.filterOptionActive]}
+              onPress={() => { setSelectedRole(UserRole.STUDENT); setShowFilterModal(false); }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="musical-notes" size={24} color={selectedRole === UserRole.STUDENT ? Colors.student : Colors.textSecondary} />
+              <Text style={[styles.filterOptionText, selectedRole === UserRole.STUDENT && styles.filterOptionTextActive]}>Allievi</Text>
+              {selectedRole === UserRole.STUDENT && <Ionicons name="checkmark" size={20} color={Colors.student} />}
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Add User Modal */}
+      <Modal
+        visible={showAddModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setShowAddModal(false)}>
+            <Pressable style={styles.formModalContent} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Nuovo Utente</Text>
+                <TouchableOpacity onPress={() => setShowAddModal(false)} style={styles.closeButton}>
+                  <Ionicons name="close" size={24} color={Colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.formScrollView} showsVerticalScrollIndicator={false}>
+                {/* Role Selection */}
+                <Text style={styles.inputLabel}>Ruolo *</Text>
+                <View style={styles.roleSelector}>
+                  {[UserRole.STUDENT, UserRole.TEACHER, UserRole.ADMIN].map((role) => (
+                    <TouchableOpacity
+                      key={role}
+                      style={[
+                        styles.roleSelectorOption,
+                        formData.ruolo === role && styles.roleSelectorOptionActive,
+                        formData.ruolo === role && { borderColor: getRoleColor(role) }
+                      ]}
+                      onPress={() => setFormData({ ...formData, ruolo: role })}
+                    >
+                      <Ionicons 
+                        name={getRoleIcon(role)} 
+                        size={20} 
+                        color={formData.ruolo === role ? getRoleColor(role) : Colors.textSecondary} 
+                      />
+                      <Text style={[
+                        styles.roleSelectorText,
+                        formData.ruolo === role && { color: getRoleColor(role), fontWeight: Typography.fontWeight.semibold }
+                      ]}>
+                        {getRoleLabel(role)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Name */}
+                <Text style={styles.inputLabel}>Nome *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.nome && styles.inputError]}
+                  placeholder="Nome"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.nome}
+                  onChangeText={(text) => setFormData({ ...formData, nome: text })}
+                />
+                {formErrors.nome && <Text style={styles.errorText}>{formErrors.nome}</Text>}
+
+                {/* Surname */}
+                <Text style={styles.inputLabel}>Cognome *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.cognome && styles.inputError]}
+                  placeholder="Cognome"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.cognome}
+                  onChangeText={(text) => setFormData({ ...formData, cognome: text })}
+                />
+                {formErrors.cognome && <Text style={styles.errorText}>{formErrors.cognome}</Text>}
+
+                {/* Email */}
+                <Text style={styles.inputLabel}>Email *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.email && styles.inputError]}
+                  placeholder="email@esempio.it"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.email}
+                  onChangeText={(text) => setFormData({ ...formData, email: text })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {formErrors.email && <Text style={styles.errorText}>{formErrors.email}</Text>}
+
+                {/* Password */}
+                <Text style={styles.inputLabel}>Password *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.password && styles.inputError]}
+                  placeholder="Minimo 6 caratteri"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.password}
+                  onChangeText={(text) => setFormData({ ...formData, password: text })}
+                  secureTextEntry
+                />
+                {formErrors.password && <Text style={styles.errorText}>{formErrors.password}</Text>}
+
+                {/* Notes */}
+                <Text style={styles.inputLabel}>Note Admin</Text>
+                <TextInput
+                  style={[styles.formInput, styles.textArea]}
+                  placeholder="Note opzionali..."
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.note_admin}
+                  onChangeText={(text) => setFormData({ ...formData, note_admin: text })}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                {/* Submit Button */}
+                <TouchableOpacity
+                  style={[styles.submitButton, submitting && styles.buttonDisabled]}
+                  onPress={handleCreateUser}
+                  disabled={submitting}
+                  activeOpacity={0.8}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color={Colors.surface} />
+                  ) : (
+                    <>
+                      <Ionicons name="person-add" size={20} color={Colors.surface} />
+                      <Text style={styles.submitButtonText}>Crea Utente</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Edit User Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setShowEditModal(false)}>
+            <Pressable style={styles.formModalContent} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Modifica Utente</Text>
+                <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.closeButton}>
+                  <Ionicons name="close" size={24} color={Colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.formScrollView} showsVerticalScrollIndicator={false}>
+                {/* Role Selection */}
+                <Text style={styles.inputLabel}>Ruolo *</Text>
+                <View style={styles.roleSelector}>
+                  {[UserRole.STUDENT, UserRole.TEACHER, UserRole.ADMIN].map((role) => (
+                    <TouchableOpacity
+                      key={role}
+                      style={[
+                        styles.roleSelectorOption,
+                        formData.ruolo === role && styles.roleSelectorOptionActive,
+                        formData.ruolo === role && { borderColor: getRoleColor(role) }
+                      ]}
+                      onPress={() => setFormData({ ...formData, ruolo: role })}
+                    >
+                      <Ionicons 
+                        name={getRoleIcon(role)} 
+                        size={20} 
+                        color={formData.ruolo === role ? getRoleColor(role) : Colors.textSecondary} 
+                      />
+                      <Text style={[
+                        styles.roleSelectorText,
+                        formData.ruolo === role && { color: getRoleColor(role), fontWeight: Typography.fontWeight.semibold }
+                      ]}>
+                        {getRoleLabel(role)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Name */}
+                <Text style={styles.inputLabel}>Nome *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.nome && styles.inputError]}
+                  placeholder="Nome"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.nome}
+                  onChangeText={(text) => setFormData({ ...formData, nome: text })}
+                />
+                {formErrors.nome && <Text style={styles.errorText}>{formErrors.nome}</Text>}
+
+                {/* Surname */}
+                <Text style={styles.inputLabel}>Cognome *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.cognome && styles.inputError]}
+                  placeholder="Cognome"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.cognome}
+                  onChangeText={(text) => setFormData({ ...formData, cognome: text })}
+                />
+                {formErrors.cognome && <Text style={styles.errorText}>{formErrors.cognome}</Text>}
+
+                {/* Email */}
+                <Text style={styles.inputLabel}>Email *</Text>
+                <TextInput
+                  style={[styles.formInput, formErrors.email && styles.inputError]}
+                  placeholder="email@esempio.it"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.email}
+                  onChangeText={(text) => setFormData({ ...formData, email: text })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {formErrors.email && <Text style={styles.errorText}>{formErrors.email}</Text>}
+
+                {/* Password */}
+                <Text style={styles.inputLabel}>Nuova Password (opzionale)</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Lascia vuoto per non modificare"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.password}
+                  onChangeText={(text) => setFormData({ ...formData, password: text })}
+                  secureTextEntry
+                />
+
+                {/* Notes */}
+                <Text style={styles.inputLabel}>Note Admin</Text>
+                <TextInput
+                  style={[styles.formInput, styles.textArea]}
+                  placeholder="Note opzionali..."
+                  placeholderTextColor={Colors.textTertiary}
+                  value={formData.note_admin}
+                  onChangeText={(text) => setFormData({ ...formData, note_admin: text })}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                {/* Submit Button */}
+                <TouchableOpacity
+                  style={[styles.submitButton, submitting && styles.buttonDisabled]}
+                  onPress={handleUpdateUser}
+                  disabled={submitting}
+                  activeOpacity={0.8}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color={Colors.surface} />
+                  ) : (
+                    <>
+                      <Ionicons name="save" size={20} color={Colors.surface} />
+                      <Text style={styles.submitButtonText}>Salva Modifiche</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal
-        visible={deleteModalVisible}
+        visible={showDeleteModal}
+        transparent={true}
         animationType="fade"
-        transparent={true}
-        onRequestClose={() => setDeleteModalVisible(false)}
+        onRequestClose={() => setShowDeleteModal(false)}
       >
-        <View style={styles.deleteModalOverlay}>
-          <View style={styles.deleteModalContent}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowDeleteModal(false)}>
+          <Pressable style={styles.deleteModalContent} onPress={(e) => e.stopPropagation()}>
             <View style={styles.deleteIconContainer}>
-              <Ionicons name="warning" size={48} color="#EF4444" />
+              <Ionicons name="warning" size={48} color={Colors.error} />
             </View>
-            <Text style={styles.deleteModalTitle}>Eliminare questo utente?</Text>
-            <Text style={styles.deleteModalName}>
-              {userToDelete?.nome} {userToDelete?.cognome}
+            
+            <Text style={styles.deleteModalTitle}>Elimina Utente</Text>
+            <Text style={styles.deleteModalText}>
+              Sei sicuro di voler eliminare{'\n'}
+              <Text style={styles.deleteModalUserName}>
+                {selectedUser?.nome} {selectedUser?.cognome}
+              </Text>?
             </Text>
-            <Text style={styles.deleteModalMessage}>
-              Questa azione è irreversibile. Tutti i dati associati verranno persi.
+            <Text style={styles.deleteModalWarning}>
+              Questa azione non può essere annullata.
             </Text>
-            <View style={styles.deleteModalActions}>
-              <TouchableOpacity 
-                style={styles.deleteModalCancel}
-                onPress={() => setDeleteModalVisible(false)}
-              >
-                <Text style={styles.deleteModalCancelText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.deleteModalConfirm}
-                onPress={confirmDelete}
-              >
-                <Ionicons name="trash" size={18} color="#fff" />
-                <Text style={styles.deleteModalConfirmText}>Elimina</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
-      {/* Modal Create/Edit */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {editingUser ? 'Modifica Utente' : `Nuovo ${formData.ruolo === 'allievo' ? 'Allievo' : 'Insegnante'}`}
-              </Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.formScroll}>
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Nome *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.nome}
-                  onChangeText={(text) => setFormData({ ...formData, nome: text })}
-                  placeholder="Mario"
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Cognome *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.cognome}
-                  onChangeText={(text) => setFormData({ ...formData, cognome: text })}
-                  placeholder="Rossi"
-                />
-              </View>
-
-              {!editingUser && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Email *</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.email}
-                    onChangeText={(text) => setFormData({ ...formData, email: text })}
-                    placeholder="mario.rossi@email.it"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-              )}
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>
-                  Password {editingUser ? '(lascia vuoto per non modificare)' : '*'}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.password}
-                  onChangeText={(text) => setFormData({ ...formData, password: text })}
-                  placeholder={editingUser ? '••••••••' : 'Minimo 6 caratteri'}
-                  secureTextEntry
-                />
-              </View>
-
-              {/* Instrument Selection for Teachers - MOVED UP */}
-              {formData.ruolo === 'insegnante' && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Strumento musicale *</Text>
-                  <View style={styles.pickerContainer}>
-                    {INSTRUMENTS.map(instrument => (
-                      <TouchableOpacity
-                        key={instrument.value}
-                        style={[
-                          styles.pickerOption,
-                          formData.strumento === instrument.value && styles.pickerOptionSelected
-                        ]}
-                        onPress={() => setFormData({ ...formData, strumento: instrument.value })}
-                      >
-                        <Ionicons 
-                          name={instrument.icon as any} 
-                          size={16} 
-                          color={formData.strumento === instrument.value ? '#fff' : '#666'} 
-                        />
-                        <Text style={[
-                          styles.pickerOptionText,
-                          formData.strumento === instrument.value && styles.pickerOptionTextSelected
-                        ]}>
-                          {instrument.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Teacher Selection for Students - MOVED UP */}
-              {formData.ruolo === 'allievo' && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Insegnante di riferimento *</Text>
-                  <View style={styles.pickerContainer}>
-                    {teachers.length === 0 ? (
-                      <Text style={styles.noOptionsText}>Nessun insegnante disponibile. Crea prima un insegnante.</Text>
-                    ) : (
-                      teachers.map(teacher => (
-                        <TouchableOpacity
-                          key={teacher.id}
-                          style={[
-                            styles.pickerOption,
-                            formData.insegnante_id === teacher.id && styles.pickerOptionSelected
-                          ]}
-                          onPress={() => setFormData({ ...formData, insegnante_id: teacher.id })}
-                        >
-                          <Ionicons 
-                            name="school" 
-                            size={16} 
-                            color={formData.insegnante_id === teacher.id ? '#fff' : '#666'} 
-                          />
-                          <Text style={[
-                            styles.pickerOptionText,
-                            formData.insegnante_id === teacher.id && styles.pickerOptionTextSelected
-                          ]}>
-                            {teacher.nome} {teacher.cognome}
-                          </Text>
-                          {(teacher as any).strumento && (
-                            <Text style={[
-                              styles.pickerOptionSub,
-                              formData.insegnante_id === teacher.id && { color: 'rgba(255,255,255,0.8)' }
-                            ]}>
-                              ({getInstrumentLabel((teacher as any).strumento)})
-                            </Text>
-                          )}
-                        </TouchableOpacity>
-                      ))
-                    )}
-                  </View>
-                </View>
-              )}
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Data di Nascita</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.data_nascita}
-                  onChangeText={(text) => setFormData({ ...formData, data_nascita: text })}
-                  placeholder="YYYY-MM-DD"
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Note amministratore</Text>
-                <TextInput
-                  style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-                  value={formData.note_admin}
-                  onChangeText={(text) => setFormData({ ...formData, note_admin: text })}
-                  placeholder="Note interne (opzionale)"
-                  multiline
-                />
-              </View>
-
-              {editingUser && (
-                <View style={styles.infoBox}>
-                  <Ionicons name="information-circle" size={18} color="#4A90D9" />
-                  <Text style={styles.infoBoxText}>
-                    Email: {editingUser.email}
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={() => setModalVisible(false)}
+                onPress={() => setShowDeleteModal(false)}
+                activeOpacity={0.7}
               >
                 <Text style={styles.cancelButtonText}>Annulla</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.saveButton}
-                onPress={handleSave}
+              
+              <TouchableOpacity
+                style={[styles.confirmDeleteButton, submitting && styles.buttonDisabled]}
+                onPress={handleDeleteUser}
+                disabled={submitting}
+                activeOpacity={0.7}
               >
-                <Text style={styles.saveButtonText}>
-                  {editingUser ? 'Salva Modifiche' : 'Crea Utente'}
-                </Text>
+                {submitting ? (
+                  <ActivityIndicator size="small" color={Colors.surface} />
+                ) : (
+                  <>
+                    <Ionicons name="trash" size={18} color={Colors.surface} />
+                    <Text style={styles.confirmDeleteButtonText}>Elimina</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
+
+      {/* Floating Action Button - Only for Admin */}
+      {isAdmin && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={handleOpenAddModal}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add" size={28} color={Colors.surface} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -622,374 +747,439 @@ export default function UsersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: Colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: Colors.background,
   },
-  noAccessContainer: {
+  
+  // Stats
+  statsContainer: {
+    flexDirection: 'row',
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  statCard: {
     flex: 1,
-    justifyContent: 'center',
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xs,
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    padding: 20,
   },
-  noAccessText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 16,
+  statNumber: {
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    marginTop: Spacing.xs,
+  },
+  statLabel: {
+    fontSize: Typography.fontSize.tiny,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
     textAlign: 'center',
   },
-  actionsBar: {
-    flexDirection: 'row',
-    padding: 12,
-    gap: 10,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4A90D9',
-    paddingVertical: 12,
-    borderRadius: 10,
-    gap: 6,
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    marginHorizontal: 12,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 10,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  activeTab: {
-    backgroundColor: '#fff',
-  },
-  tabText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  activeTabText: {
-    color: '#4A90D9',
-    fontWeight: '600',
-  },
+
+  // Search
   searchContainer: {
     flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    gap: Spacing.md,
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    margin: 12,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    height: 44,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  searchIcon: {
+    marginRight: Spacing.sm,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    fontSize: 15,
+    fontSize: Typography.fontSize.body,
+    color: Colors.textPrimary,
   },
-  listContainer: {
-    flex: 1,
-    paddingHorizontal: 12,
-  },
-  emptyContainer: {
+  filterButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
-  emptyText: {
-    fontSize: 15,
-    color: '#999',
-    marginTop: 12,
+
+  // List
+  scrollView: {
+    flex: 1,
+  },
+  listContent: {
+    padding: Spacing.lg,
+    paddingTop: 0,
   },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    minHeight: 88,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
-  userAvatar: {
+  userIconContainer: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: '#4A90D9',
+    borderRadius: BorderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  userAvatarText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    marginRight: Spacing.md,
+    flexShrink: 0,
   },
   userInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginRight: Spacing.sm,
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
   },
   userEmail: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 2,
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
   },
-  assignmentBadge: {
+  roleBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+    alignSelf: 'flex-start',
+  },
+  roleText: {
+    fontSize: Typography.fontSize.small,
+    fontWeight: Typography.fontWeight.medium,
+  },
+
+  // Empty State
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.huge * 2,
+  },
+  emptyTitle: {
+    fontSize: Typography.fontSize.h3,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+    marginTop: Spacing.lg,
+  },
+  emptyText: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.textSecondary,
+    marginTop: Spacing.sm,
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    paddingTop: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Platform.OS === 'ios' ? Spacing.huge : Spacing.xl,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+  modalTitle: {
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  closeButton: {
+    padding: Spacing.sm,
+  },
+  filterOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#EBF5FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    marginTop: 4,
-    gap: 4,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.background,
+    minHeight: 60,
   },
-  assignmentText: {
-    fontSize: 11,
-    color: '#4A90D9',
-    fontWeight: '500',
+  filterOptionActive: {
+    backgroundColor: Colors.primary + '10',
   },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginTop: 4,
+  filterOptionText: {
+    flex: 1,
+    fontSize: Typography.fontSize.body,
+    color: Colors.textPrimary,
+    marginLeft: Spacing.lg,
   },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '500',
+  filterOptionTextActive: {
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.primary,
+  },
+
+  // User Card with Actions
+  userCardContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   userActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: Spacing.sm,
+    marginLeft: Spacing.sm,
   },
-  userActionBtn: {
-    padding: 8,
-  },
-  deleteModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
+  editButton: {
+    backgroundColor: Colors.primary + '15',
+  },
+  deleteButton: {
+    backgroundColor: Colors.error + '15',
+  },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: Spacing.xl,
+    right: Spacing.xl,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: Colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+
+  // Form Modal
+  formModalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    paddingTop: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Platform.OS === 'ios' ? Spacing.huge : Spacing.xl,
+    maxHeight: '90%',
+  },
+  formScrollView: {
+    flexGrow: 0,
+  },
+  inputLabel: {
+    fontSize: Typography.fontSize.caption,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+    marginTop: Spacing.md,
+  },
+  formInput: {
+    height: Layout.inputHeight,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.lg,
+    fontSize: Typography.fontSize.body,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+  },
+  inputError: {
+    borderColor: Colors.error,
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+    paddingTop: Spacing.md,
+  },
+  errorText: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.error,
+    marginTop: Spacing.xs,
+  },
+  roleSelector: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  roleSelectorOption: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    minHeight: 70,
+  },
+  roleSelectorOptionActive: {
+    backgroundColor: Colors.surface,
+    borderWidth: 2,
+  },
+  roleSelectorText: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+    textAlign: 'center',
+  },
+  submitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    height: Layout.buttonHeight,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.xl,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  submitButtonText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.surface,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+
+  // Delete Modal
   deleteModalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 340,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xxl,
+    margin: Spacing.xl,
     alignItems: 'center',
   },
   deleteIconContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: Colors.errorLight,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   deleteModalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.md,
   },
-  deleteModalName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4A90D9',
-    marginBottom: 12,
-  },
-  deleteModalMessage: {
-    fontSize: 14,
-    color: '#666',
+  deleteModalText: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24,
+    marginBottom: Spacing.sm,
   },
-  deleteModalActions: {
+  deleteModalUserName: {
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  deleteModalWarning: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.error,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+  },
+  deleteModalButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: Spacing.md,
     width: '100%',
-  },
-  deleteModalCancel: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-  },
-  deleteModalCancelText: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '600',
-  },
-  deleteModalConfirm: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  deleteModalConfirmText: {
-    fontSize: 15,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '90%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  formScroll: {
-    padding: 16,
-    maxHeight: 450,
-  },
-  formGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-  },
-  pickerContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  pickerOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    gap: 6,
-  },
-  pickerOptionSelected: {
-    backgroundColor: '#4A90D9',
-    borderColor: '#4A90D9',
-  },
-  pickerOptionText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  pickerOptionTextSelected: {
-    color: '#fff',
-    fontWeight: '500',
-  },
-  pickerOptionSub: {
-    fontSize: 11,
-    color: '#999',
-  },
-  noOptionsText: {
-    fontSize: 14,
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  infoBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EBF5FF',
-    padding: 12,
-    borderRadius: 10,
-    marginTop: 8,
-  },
-  infoBoxText: {
-    fontSize: 13,
-    color: '#4A90D9',
-    marginLeft: 8,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    height: Layout.buttonHeight,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   cancelButtonText: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.textPrimary,
   },
-  saveButton: {
+  confirmDeleteButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: '#4A90D9',
+    flexDirection: 'row',
+    height: Layout.buttonHeight,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: Colors.error,
+    gap: Spacing.sm,
   },
-  saveButtonText: {
-    fontSize: 15,
-    color: '#fff',
-    fontWeight: '600',
+  confirmDeleteButtonText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.surface,
   },
 });

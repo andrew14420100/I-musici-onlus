@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -9,12 +9,16 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  Image,
+  Animated
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/contexts/AuthContext';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Colors, Typography, Spacing, BorderRadius, Shadows, Layout } from '../src/theme';
 
 type LoginMode = 'select' | 'login';
 type SelectedRole = 'amministratore' | 'insegnante' | 'allievo';
@@ -33,448 +37,466 @@ export default function LandingPage() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState<string>('');
+  const [fadeAnim] = useState(new Animated.Value(0));
 
   useEffect(() => {
-    if (isAuthenticated && user) {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user) {
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, user]);
+  }, [isLoading, isAuthenticated, user]);
 
   const handleLogin = async () => {
+    setLoginError('');
+    
     if (!email || !password) {
-      Alert.alert('Errore', 'Inserisci email e password');
+      setLoginError('Inserisci email e password');
       return;
     }
     
     setIsSubmitting(true);
-    const result = await loginWithCredentials(email, password);
+    const result = await loginWithCredentials(email, password, selectedRole);
     setIsSubmitting(false);
     
-    if (!result.success) {
-      Alert.alert('Errore', result.error || 'Login fallito');
+    if (result.success) {
+      router.replace('/(tabs)');
+    } else {
+      setLoginError(result.error || 'Email o password non validi');
     }
   };
 
   const selectRoleAndLogin = (role: SelectedRole) => {
     setSelectedRole(role);
-    setEmail('');
-    setPassword('');
     setLoginMode('login');
+    setLoginError('');
+  };
+
+  const getRoleColor = (role: SelectedRole) => {
+    switch (role) {
+      case 'amministratore':
+        return Colors.admin;
+      case 'insegnante':
+        return Colors.teacher;
+      case 'allievo':
+        return Colors.student;
+    }
+  };
+
+  const getRoleIcon = (role: SelectedRole): keyof typeof Ionicons.glyphMap => {
+    switch (role) {
+      case 'amministratore':
+        return 'shield-checkmark';
+      case 'insegnante':
+        return 'school';
+      case 'allievo':
+        return 'musical-notes';
+    }
   };
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4A90D9" />
-        <Text style={styles.loadingText}>Caricamento...</Text>
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
 
-  const getRoleInfo = () => {
-    switch (selectedRole) {
-      case 'amministratore':
-        return { icon: 'shield-checkmark', color: '#4A90D9', title: 'Amministratore' };
-      case 'insegnante':
-        return { icon: 'school', color: '#F59E0B', title: 'Insegnante' };
-      case 'allievo':
-        return { icon: 'person', color: '#10B981', title: 'Allievo' };
-    }
-  };
-
   const renderSelectMode = () => (
-    <>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          <Ionicons name="musical-notes" size={44} color="#4A90D9" />
-        </View>
-        <Text style={styles.title}>Accademia de</Text>
-        <Text style={styles.titleHighlight}>"I Musici"</Text>
-      </View>
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+      <LinearGradient
+        colors={[Colors.primary, Colors.primaryLight]}
+        style={styles.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header with Logo */}
+            <View style={styles.header}>
+              <View style={styles.logoContainer}>
+                <Image 
+                  source={require('../assets/logo.png')} 
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.subtitle}>Seleziona il tuo ruolo per accedere</Text>
+            </View>
 
-      {/* Login Options */}
-      <View style={styles.loginSection}>
-        <Text style={styles.loginTitle}>Accedi come:</Text>
-        
-        {/* Admin Login */}
-        <TouchableOpacity 
-          style={[styles.roleButton, styles.adminButton]} 
-          onPress={() => selectRoleAndLogin('amministratore')}
-        >
-          <View style={styles.roleButtonContent}>
-            <View style={[styles.roleIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-              <Ionicons name="shield-checkmark" size={24} color="#fff" />
-            </View>
-            <View style={styles.roleText}>
-              <Text style={styles.roleTitle}>Amministratore</Text>
-              <Text style={styles.roleDesc}>Gestione completa dell'accademia</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
-        </TouchableOpacity>
-        
-        {/* Teacher Login */}
-        <TouchableOpacity 
-          style={[styles.roleButton, styles.teacherButton]} 
-          onPress={() => selectRoleAndLogin('insegnante')}
-        >
-          <View style={styles.roleButtonContent}>
-            <View style={[styles.roleIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-              <Ionicons name="school" size={24} color="#fff" />
-            </View>
-            <View style={styles.roleText}>
-              <Text style={styles.roleTitle}>Insegnante</Text>
-              <Text style={styles.roleDesc}>Gestione lezioni e presenze</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
-        </TouchableOpacity>
-        
-        {/* Student Login */}
-        <TouchableOpacity 
-          style={[styles.roleButton, styles.studentButton]} 
-          onPress={() => selectRoleAndLogin('allievo')}
-        >
-          <View style={styles.roleButtonContent}>
-            <View style={[styles.roleIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-              <Ionicons name="person" size={24} color="#fff" />
-            </View>
-            <View style={styles.roleText}>
-              <Text style={styles.roleTitle}>Allievo</Text>
-              <Text style={styles.roleDesc}>Visualizza corsi e pagamenti</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
-        </TouchableOpacity>
-        
-        <View style={styles.infoBox}>
-          <Ionicons name="information-circle" size={20} color="#666" />
-          <Text style={styles.infoText}>
-            Le credenziali vengono fornite dall'amministrazione.{'\n'}
-            In caso di problemi, contatta la segreteria.
-          </Text>
-        </View>
-      </View>
-    </>
-  );
+            {/* Role Cards */}
+            <View style={styles.rolesContainer}>
+              {/* Admin */}
+              <TouchableOpacity 
+                style={styles.roleCard}
+                onPress={() => selectRoleAndLogin('amministratore')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.roleIconContainer, { backgroundColor: `${Colors.admin}20` }]}>
+                  <Ionicons name="shield-checkmark" size={32} color={Colors.admin} />
+                </View>
+                <Text style={styles.roleTitle}>Amministratore</Text>
+                <Text style={styles.roleDesc}>Gestione completa</Text>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} style={styles.roleArrow} />
+              </TouchableOpacity>
 
-  const renderLoginForm = () => {
-    const roleInfo = getRoleInfo();
-    
-    return (
-      <>
-        <TouchableOpacity style={styles.backButton} onPress={() => setLoginMode('select')}>
-          <Ionicons name="arrow-back" size={24} color="#4A90D9" />
-          <Text style={styles.backText}>Indietro</Text>
-        </TouchableOpacity>
+              {/* Teacher */}
+              <TouchableOpacity 
+                style={styles.roleCard}
+                onPress={() => selectRoleAndLogin('insegnante')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.roleIconContainer, { backgroundColor: `${Colors.teacher}20` }]}>
+                  <Ionicons name="school" size={32} color={Colors.teacher} />
+                </View>
+                <Text style={styles.roleTitle}>Insegnante</Text>
+                <Text style={styles.roleDesc}>Lezioni e presenze</Text>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} style={styles.roleArrow} />
+              </TouchableOpacity>
 
-        <View style={styles.formHeader}>
-          <View style={[styles.formIcon, { backgroundColor: roleInfo.color }]}>
-            <Ionicons name={roleInfo.icon as any} size={32} color="#fff" />
-          </View>
-          <Text style={styles.formTitle}>Accesso {roleInfo.title}</Text>
-          <Text style={styles.formSubtitle}>
-            Inserisci le tue credenziali
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail" size={20} color="#999" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="email@esempio.it"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed" size={20} color="#999" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Password"
-                secureTextEntry={!showPassword}
-                autoComplete="password"
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color="#999" />
+              {/* Student */}
+              <TouchableOpacity 
+                style={styles.roleCard}
+                onPress={() => selectRoleAndLogin('allievo')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.roleIconContainer, { backgroundColor: `${Colors.student}20` }]}>
+                  <Ionicons name="musical-notes" size={32} color={Colors.student} />
+                </View>
+                <Text style={styles.roleTitle}>Allievo</Text>
+                <Text style={styles.roleDesc}>Corsi e pagamenti</Text>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} style={styles.roleArrow} />
               </TouchableOpacity>
             </View>
-          </View>
-
-          <TouchableOpacity 
-            style={[styles.submitButton, { backgroundColor: roleInfo.color }, isSubmitting && styles.submitButtonDisabled]} 
-            onPress={handleLogin}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.submitButtonText}>Accedi</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.warningBox}>
-            <Ionicons name="help-circle" size={18} color="#4A90D9" />
-            <Text style={styles.warningText}>
-              Non ricordi le credenziali? Contatta l'amministrazione per assistenza.
-            </Text>
-          </View>
-        </View>
-      </>
-    );
-  };
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {loginMode === 'select' && renderSelectMode()}
-          {loginMode === 'login' && renderLoginForm()}
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>© 2025 Accademia de "I Musici"</Text>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
+    </Animated.View>
   );
+
+  const renderLoginForm = () => (
+    <LinearGradient
+      colors={[Colors.primary, Colors.primaryLight]}
+      style={styles.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+    >
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Back Button */}
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => {
+                setLoginMode('select');
+                setLoginError('');
+                setEmail('');
+                setPassword('');
+              }}
+            >
+              <Ionicons name="arrow-back" size={24} color={Colors.surface} />
+              <Text style={styles.backText}>Indietro</Text>
+            </TouchableOpacity>
+
+            {/* Login Card */}
+            <View style={styles.loginCard}>
+              <View style={[styles.loginIconContainer, { backgroundColor: `${getRoleColor(selectedRole)}20` }]}>
+                <Ionicons name={getRoleIcon(selectedRole)} size={40} color={getRoleColor(selectedRole)} />
+              </View>
+              
+              <Text style={styles.loginTitle}>
+                {selectedRole === 'amministratore' ? 'Amministratore' : 
+                 selectedRole === 'insegnante' ? 'Insegnante' : 'Allievo'}
+              </Text>
+              <Text style={styles.loginSubtitle}>Inserisci le tue credenziali</Text>
+
+              {loginError ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={20} color={Colors.error} />
+                  <Text style={styles.errorText}>{loginError}</Text>
+                </View>
+              ) : null}
+
+              {/* Email Input */}
+              <View style={styles.inputContainer}>
+                <Ionicons name="mail-outline" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                />
+              </View>
+
+              {/* Password Input */}
+              <View style={styles.inputContainer}>
+                <Ionicons name="lock-closed-outline" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity 
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeIcon}
+                >
+                  <Ionicons 
+                    name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                    size={20} 
+                    color={Colors.textSecondary} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Login Button */}
+              <TouchableOpacity 
+                style={[
+                  styles.loginButton,
+                  { backgroundColor: getRoleColor(selectedRole) }
+                ]}
+                onPress={handleLogin}
+                disabled={isSubmitting}
+                activeOpacity={0.8}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color={Colors.surface} />
+                ) : (
+                  <>
+                    <Text style={styles.loginButtonText}>Accedi</Text>
+                    <Ionicons name="arrow-forward" size={20} color={Colors.surface} />
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
+  );
+
+  return loginMode === 'select' ? renderSelectMode() : renderLoginForm();
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+  },
+  gradient: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 30,
     flexGrow: 1,
+    padding: Spacing.xl,
+  },
+  keyboardView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: Colors.background,
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
+  
+  // Header
   header: {
     alignItems: 'center',
-    paddingTop: 40,
-    paddingBottom: 30,
+    marginTop: Spacing.huge,
+    marginBottom: Spacing.xxxl,
   },
   logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EBF5FF',
+    width: 120,
+    height: 120,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: Spacing.xl,
+    ...Shadows.large,
+  },
+  logoImage: {
+    width: 120,
+    height: 120,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '300',
-    color: '#333',
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.regular,
+    color: Colors.surface,
+    marginTop: Spacing.md,
   },
   titleHighlight: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#4A90D9',
-    marginTop: 2,
+    fontSize: Typography.fontSize.h1,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.surface,
+    marginTop: Spacing.xs,
   },
-  loginSection: {
-    flex: 1,
+  subtitle: {
+    fontSize: Typography.fontSize.caption,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: Spacing.md,
   },
-  loginTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 20,
+
+  // Role Cards
+  rolesContainer: {
+    gap: Spacing.lg,
   },
-  roleButton: {
+  roleCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    marginBottom: 12,
+    ...Shadows.medium,
   },
-  adminButton: {
-    backgroundColor: '#4A90D9',
-  },
-  teacherButton: {
-    backgroundColor: '#F59E0B',
-  },
-  studentButton: {
-    backgroundColor: '#10B981',
-  },
-  roleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  roleIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  roleIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
-  },
-  roleText: {
-    flex: 1,
+    marginRight: Spacing.lg,
   },
   roleTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#fff',
+    flex: 1,
+    fontSize: Typography.fontSize.h3,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
   },
   roleDesc: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 2,
+    position: 'absolute',
+    left: 88,
+    bottom: Spacing.lg,
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
   },
-  infoBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#F1F5F9',
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 16,
+  roleArrow: {
+    marginLeft: Spacing.sm,
   },
-  infoText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#666',
-    marginLeft: 10,
-    lineHeight: 18,
-  },
+
+  // Login Form
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    marginBottom: Spacing.xl,
   },
   backText: {
-    fontSize: 16,
-    color: '#4A90D9',
-    marginLeft: 8,
+    fontSize: Typography.fontSize.body,
+    color: Colors.surface,
+    marginLeft: Spacing.sm,
+    fontWeight: Typography.fontWeight.medium,
   },
-  formHeader: {
-    alignItems: 'center',
-    marginBottom: 24,
+  loginCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xxl,
+    ...Shadows.large,
+    marginTop: Spacing.xl,
   },
-  formIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  loginIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: BorderRadius.lg,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    alignSelf: 'center',
+    marginBottom: Spacing.xl,
   },
-  formTitle: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: '#333',
-  },
-  formSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 6,
+  loginTitle: {
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.textPrimary,
     textAlign: 'center',
+    marginBottom: Spacing.xs,
   },
-  form: {
+  loginSubtitle: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Spacing.xxl,
+  },
+  
+  // Error
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.errorLight,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.lg,
+  },
+  errorText: {
     flex: 1,
+    fontSize: Typography.fontSize.caption,
+    color: Colors.error,
+    marginLeft: Spacing.sm,
   },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 8,
-  },
+
+  // Inputs
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    height: Layout.inputHeight,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    borderColor: Colors.border,
   },
   inputIcon: {
-    marginRight: 10,
+    marginRight: Spacing.md,
   },
   input: {
     flex: 1,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#333',
+    fontSize: Typography.fontSize.body,
+    color: Colors.textPrimary,
   },
-  submitButton: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
+  eyeIcon: {
+    padding: Spacing.sm,
+  },
+
+  // Button
+  loginButton: {
+    height: Layout.buttonHeight,
+    borderRadius: BorderRadius.md,
+    flexDirection: 'row',
     justifyContent: 'center',
-    flexDirection: 'row',
-    marginTop: 8,
-  },
-  submitButtonDisabled: {
-    opacity: 0.7,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  warningBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#EBF5FF',
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 20,
-  },
-  warningText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#4A90D9',
-    marginLeft: 10,
-    lineHeight: 18,
-  },
-  footer: {
-    marginTop: 30,
     alignItems: 'center',
+    marginTop: Spacing.md,
+    ...Shadows.medium,
   },
-  footerText: {
-    fontSize: 12,
-    color: '#999',
+  loginButtonText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.surface,
+    marginRight: Spacing.sm,
   },
 });

@@ -9,7 +9,7 @@ import httpx
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
-import uuid
+from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 from passlib.context import CryptContext
@@ -49,11 +49,13 @@ class UserRole(str, Enum):
     ADMIN = "amministratore"
     TEACHER = "insegnante"
     STUDENT = "allievo"
+    SECRETARY = "segretaria"
 
 class AttendanceStatus(str, Enum):
     PRESENT = "presente"
-    ABSENT = "assente"
-    JUSTIFIED = "giustificato"
+    ABSENT_JUSTIFIED = "assente_giustificato"
+    ABSENT_UNJUSTIFIED = "assente_non_giustificato"
+    MAKEUP = "recupero"
 
 class PaymentStatus(str, Enum):
     PENDING = "in_attesa"
@@ -69,6 +71,8 @@ class NotificationType(str, Enum):
     GENERAL = "generale"
     PAYMENT = "pagamento"
     LESSON = "lezione"
+    PAYMENT_REQUEST = "pagamenti_da_effettuare"
+    EVENT = "eventi"
 
 class RecipientType(str, Enum):
     ALL = "tutti"
@@ -85,7 +89,7 @@ PAYMENT_TOLERANCE_DAYS = 0  # Tolleranza in giorni (configurabile)
 
 # 1. UTENTI - Main users table
 class User(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     ruolo: UserRole
     nome: str
     cognome: str
@@ -137,7 +141,7 @@ class UserResponse(BaseModel):
 
 # 2. ACCESSO_AMMINISTRAZIONE - Admin 2-factor auth
 class AdminAccess(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     utente_id: str
     pin_hash: str
     pin_attivo: bool = True
@@ -154,7 +158,7 @@ class AdminAccessUpdate(BaseModel):
 
 # 3. SESSIONI - Session management
 class Session(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     utente_id: str
     token_sessione: str
     dispositivo: str = "web"
@@ -164,7 +168,7 @@ class Session(BaseModel):
 
 # 4. ALLIEVI_DETTAGLIO - Student details
 class StudentDetail(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     utente_id: str
     telefono: Optional[str] = None
     data_nascita: Optional[str] = None
@@ -179,7 +183,7 @@ class StudentDetailCreate(BaseModel):
 
 # 5. INSEGNANTI_DETTAGLIO - Teacher details
 class TeacherDetail(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     utente_id: str
     specializzazione: Optional[str] = None  # Instrument
     compenso_orario: Optional[float] = None
@@ -192,7 +196,7 @@ class TeacherDetailCreate(BaseModel):
 
 # Attendance Models
 class Attendance(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     corso_id: Optional[str] = None
     lezione_id: Optional[str] = None
     allievo_id: str
@@ -214,7 +218,7 @@ class AttendanceCreate(BaseModel):
 
 # Course Models
 class Course(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     nome: str
     strumento: str
     insegnante_id: str
@@ -237,7 +241,7 @@ class CourseUpdate(BaseModel):
 
 # Lesson Models
 class Lesson(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     corso_id: str
     insegnante_id: str
     data: datetime
@@ -261,7 +265,7 @@ class LessonUpdate(BaseModel):
 
 # Teacher Compensation Models
 class TeacherCompensation(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     insegnante_id: str
     corso_id: Optional[str] = None
     quota_per_presenza: float  # Compenso per ogni presenza
@@ -274,7 +278,7 @@ class TeacherCompensationCreate(BaseModel):
 
 # Assignment Models
 class Assignment(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     insegnante_id: str
     allievo_id: str
     titolo: str
@@ -291,7 +295,7 @@ class AssignmentCreate(BaseModel):
 
 # Payment Models
 class Payment(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     utente_id: str
     tipo: PaymentType  # mensile / annuale / compenso_insegnante
     importo: float
@@ -322,9 +326,73 @@ class PaymentUpdate(BaseModel):
     tolleranza_giorni: Optional[int] = None
     visibile_utente: Optional[bool] = None
 
+# Payment Request Models (for in-app payment flow)
+class PaymentRequestStatus(str, Enum):
+    PENDING = "in_attesa"  # Allievo deve ancora confermare
+    CONFIRMED = "confermato"  # Allievo ha confermato, admin deve approvare
+    APPROVED = "approvato"  # Admin ha approvato, pagamento completato
+    REJECTED = "rifiutato"  # Admin ha rifiutato
+
+class PaymentRequest(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    utente_id: str
+    importo: float
+    causale: str
+    scadenza: datetime
+    note: Optional[str] = None
+    stato: PaymentRequestStatus = PaymentRequestStatus.PENDING
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    data_conferma_allievo: Optional[datetime] = None  # Quando l'allievo conferma
+    data_approvazione_admin: Optional[datetime] = None  # Quando l'admin approva
+    note_allievo: Optional[str] = None  # Note/ricevuta caricata dall'allievo
+    notification_id: Optional[str] = None  # Link alla notifica originale
+
+class PaymentRequestCreate(BaseModel):
+    destinatari_ids: list[str]  # Lista di utente_id degli allievi
+    importo: float
+    causale: str
+    scadenza: str  # YYYY-MM-DD format
+    note: Optional[str] = None
+
+# Lesson Slot / Booking Models (Calendar System)
+class LessonSlotStatus(str, Enum):
+    AVAILABLE = "disponibile"
+    BOOKED = "prenotato"
+    CANCELLED = "annullato"
+
+class LessonSlot(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    insegnante_id: str
+    strumento: str  # pianoforte, canto, etc.
+    data: datetime  # Date and time of the lesson
+    durata: int = 60  # Duration in minutes (30, 45, 60)
+    stato: LessonSlotStatus = LessonSlotStatus.AVAILABLE
+    allievo_id: Optional[str] = None  # Who booked (if booked)
+    note: Optional[str] = None
+    data_creazione: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    data_prenotazione: Optional[datetime] = None  # When it was booked
+
+class LessonSlotCreate(BaseModel):
+    insegnante_id: str
+    strumento: str
+    data: str  # YYYY-MM-DD
+    ora: str  # HH:MM
+    durata: int = 60
+
+class LessonSlotUpdate(BaseModel):
+    insegnante_id: Optional[str] = None
+    strumento: Optional[str] = None
+    data: Optional[str] = None
+    ora: Optional[str] = None
+    durata: Optional[int] = None
+    note: Optional[str] = None
+
+class BookLessonRequest(BaseModel):
+    allievo_id: Optional[str] = None  # If admin books for someone
+
 # Notification Models
 class Notification(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid4()))
     titolo: str
     messaggio: str
     tipo: NotificationType = NotificationType.GENERAL  # generale / pagamento / lezione
@@ -462,7 +530,7 @@ async def login(login_data: LoginRequest, request: Request, response: Response):
     scadenza = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     
     session = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "utente_id": user["id"],
         "token_sessione": token,
         "dispositivo": request.headers.get("User-Agent", "unknown")[:100],
@@ -596,7 +664,7 @@ async def admin_google_verify(google_data: AdminGoogleRequest, request: Request,
     scadenza = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     
     session = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "utente_id": user["id"],
         "token_sessione": token,
         "dispositivo": request.headers.get("User-Agent", "unknown")[:100],
@@ -733,6 +801,35 @@ async def get_user(user_id: str, request: Request):
     
     return user
 
+@api_router.get("/utenti/check-duplicates")
+async def check_duplicates(
+    request: Request,
+    email: Optional[str] = None,
+    nome: Optional[str] = None,
+    cognome: Optional[str] = None,
+    data_nascita: Optional[str] = None
+):
+    """Check if a user with the given data already exists (Admin only)"""
+    await require_admin(request)
+    
+    # Check email duplicate
+    if email:
+        existing_email = await db.utenti.find_one({"email": email.lower()})
+        if existing_email:
+            return {"exists": True, "message": "Esiste già un utente con questa email"}
+    
+    # Check name + surname + birth date duplicate (for students)
+    if nome and cognome and data_nascita:
+        existing_person = await db.utenti.find_one({
+            "nome": {"$regex": f"^{nome}$", "$options": "i"},
+            "cognome": {"$regex": f"^{cognome}$", "$options": "i"},
+            "data_nascita": data_nascita
+        })
+        if existing_person:
+            return {"exists": True, "message": f"Allievo già presente con questi dati: {nome} {cognome}"}
+    
+    return {"exists": False}
+
 @api_router.post("/utenti")
 async def create_user(user_data: UserCreate, request: Request):
     """Create a new user (Admin only)"""
@@ -744,7 +841,7 @@ async def create_user(user_data: UserCreate, request: Request):
         raise HTTPException(status_code=400, detail="Email già registrata")
     
     # Create user
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid4())
     new_user = {
         "id": user_id,
         "ruolo": user_data.ruolo.value,
@@ -764,13 +861,13 @@ async def create_user(user_data: UserCreate, request: Request):
         "strumento": user_data.strumento if user_data.ruolo == UserRole.TEACHER else None
     }
     
-    await db.utenti.insert_one(new_user)
+    result = await db.utenti.insert_one(new_user)
     
     # Create admin access if role is admin
     if user_data.ruolo == UserRole.ADMIN:
         # Default PIN is "1234" - should be changed immediately
         admin_access = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid4()),
             "utente_id": user_id,
             "pin_hash": hash_password("1234"),
             "pin_attivo": True,
@@ -779,8 +876,9 @@ async def create_user(user_data: UserCreate, request: Request):
         }
         await db.accesso_amministrazione.insert_one(admin_access)
     
-    # Return user without password
-    del new_user["password_hash"]
+    # Return user without password and _id
+    new_user.pop("password_hash", None)
+    new_user.pop("_id", None)
     return new_user
 
 @api_router.put("/utenti/{user_id}")
@@ -867,7 +965,7 @@ async def create_student_detail(user_id: str, detail: StudentDetailCreate, reque
     if existing:
         await db.allievi_dettaglio.update_one({"utente_id": user_id}, {"$set": detail_data})
     else:
-        detail_data["id"] = str(uuid.uuid4())
+        detail_data["id"] = str(uuid4())
         await db.allievi_dettaglio.insert_one(detail_data)
     
     return await db.allievi_dettaglio.find_one({"utente_id": user_id}, {"_id": 0})
@@ -896,7 +994,7 @@ async def create_teacher_detail(user_id: str, detail: TeacherDetailCreate, reque
     if existing:
         await db.insegnanti_dettaglio.update_one({"utente_id": user_id}, {"$set": detail_data})
     else:
-        detail_data["id"] = str(uuid.uuid4())
+        detail_data["id"] = str(uuid4())
         await db.insegnanti_dettaglio.insert_one(detail_data)
     
     return await db.insegnanti_dettaglio.find_one({"utente_id": user_id}, {"_id": 0})
@@ -969,7 +1067,7 @@ async def create_attendance(attendance_data: AttendanceCreate, request: Request)
     current_user = await require_teacher_or_admin(request)
     
     record = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "corso_id": attendance_data.corso_id,
         "lezione_id": attendance_data.lezione_id,
         "allievo_id": attendance_data.allievo_id,
@@ -1062,7 +1160,7 @@ async def create_course(course_data: CourseCreate, request: Request):
     await require_admin(request)
     
     course = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "nome": course_data.nome,
         "strumento": course_data.strumento,
         "insegnante_id": course_data.insegnante_id,
@@ -1164,7 +1262,7 @@ async def create_lesson(lesson_data: LessonCreate, request: Request):
     await require_admin(request)
     
     lesson = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "corso_id": lesson_data.corso_id,
         "insegnante_id": lesson_data.insegnante_id,
         "data": datetime.fromisoformat(lesson_data.data),
@@ -1241,7 +1339,7 @@ async def create_compensation(comp_data: TeacherCompensationCreate, request: Req
     await require_admin(request)
     
     compensation = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "insegnante_id": comp_data.insegnante_id,
         "corso_id": comp_data.corso_id,
         "quota_per_presenza": comp_data.quota_per_presenza,
@@ -1443,7 +1541,7 @@ async def create_monthly_payments(request: Request):
         
         if not existing:
             payment = {
-                "id": str(uuid.uuid4()),
+                "id": str(uuid4()),
                 "utente_id": student["id"],
                 "tipo": PaymentType.MONTHLY.value,
                 "importo": importo,
@@ -1492,7 +1590,7 @@ async def create_payment_reminders(request: Request):
         messaggio = "Hai un pagamento scaduto. Ti preghiamo di regolarizzare la tua posizione."
     
     notification = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "titolo": titolo,
         "messaggio": messaggio,
         "tipo": NotificationType.PAYMENT.value,
@@ -1625,7 +1723,7 @@ async def create_assignment(assignment_data: AssignmentCreate, request: Request)
     current_user = await require_teacher_or_admin(request)
     
     assignment = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "insegnante_id": current_user["id"],
         "allievo_id": assignment_data.allievo_id,
         "titolo": assignment_data.titolo,
@@ -1721,7 +1819,7 @@ async def create_payment(payment_data: PaymentCreate, request: Request):
     await require_admin(request)
     
     payment = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "utente_id": payment_data.utente_id,
         "tipo": payment_data.tipo.value,
         "importo": payment_data.importo,
@@ -1741,7 +1839,13 @@ async def update_payment(payment_id: str, request: Request):
     """Update payment (Admin only)"""
     await require_admin(request)
     
+    # Verifica che il pagamento esista
+    existing = await db.pagamenti.find_one({"id": payment_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Pagamento non trovato")
+    
     body = await request.json()
+    logger.info(f"Aggiornamento pagamento {payment_id}: {body}")
     
     update_dict = {}
     if "importo" in body:
@@ -1752,15 +1856,18 @@ async def update_payment(payment_id: str, request: Request):
         update_dict["data_scadenza"] = datetime.fromisoformat(body["data_scadenza"])
     if "stato" in body:
         update_dict["stato"] = body["stato"]
+        # Se lo stato diventa "pagato", imposta automaticamente la data di pagamento
+        if body["stato"] == PaymentStatus.PAID.value:
+            update_dict["data_pagamento"] = datetime.now(timezone.utc)
+            logger.info(f"Pagamento {payment_id} segnato come PAGATO")
     if "visibile_utente" in body:
         update_dict["visibile_utente"] = body["visibile_utente"]
     
     if update_dict:
-        await db.pagamenti.update_one({"id": payment_id}, {"$set": update_dict})
+        result = await db.pagamenti.update_one({"id": payment_id}, {"$set": update_dict})
+        logger.info(f"Update result: modified_count={result.modified_count}")
     
     payment = await db.pagamenti.find_one({"id": payment_id}, {"_id": 0})
-    if not payment:
-        raise HTTPException(status_code=404, detail="Pagamento non trovato")
     return payment
 
 @api_router.delete("/pagamenti/{payment_id}")
@@ -1773,6 +1880,186 @@ async def delete_payment(payment_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Pagamento non trovato")
     
     return {"message": "Pagamento eliminato"}
+
+# ===================== PAYMENT REQUEST ROUTES =====================
+
+@api_router.post("/richieste-pagamento")
+async def create_payment_request(request_data: PaymentRequestCreate, request: Request):
+    """Create payment request - Admin only"""
+    await require_admin(request)
+    
+    # Parse scadenza
+    scadenza = datetime.fromisoformat(request_data.scadenza)
+    
+    # Crea una richiesta di pagamento per ogni destinatario
+    created_requests = []
+    
+    for utente_id in request_data.destinatari_ids:
+        # Verifica che l'utente esista e sia un allievo
+        user = await db.utenti.find_one({"id": utente_id})
+        if not user or user["ruolo"] != UserRole.STUDENT.value:
+            continue
+        
+        # Crea notifica
+        notification = {
+            "id": str(uuid4()),
+            "titolo": "Pagamento da Effettuare",
+            "messaggio": f"Causale: {request_data.causale}\nImporto: €{request_data.importo:.2f}\nScadenza: {request_data.scadenza}",
+            "tipo": NotificationType.PAYMENT_REQUEST.value,
+            "destinatari_ids": [utente_id],
+            "attivo": True,
+            "data_creazione": datetime.now(timezone.utc)
+        }
+        await db.notifiche.insert_one(notification)
+        
+        # Crea richiesta di pagamento
+        payment_request = {
+            "id": str(uuid4()),
+            "utente_id": utente_id,
+            "importo": request_data.importo,
+            "causale": request_data.causale,
+            "scadenza": scadenza,
+            "note": request_data.note,
+            "stato": PaymentRequestStatus.PENDING.value,
+            "data_creazione": datetime.now(timezone.utc),
+            "notification_id": notification["id"]
+        }
+        await db.richieste_pagamento.insert_one(payment_request)
+        payment_request.pop("_id", None)
+        created_requests.append(payment_request)
+    
+    return {"message": f"{len(created_requests)} richieste create", "requests": created_requests}
+
+@api_router.get("/richieste-pagamento")
+async def get_payment_requests(request: Request):
+    """Get payment requests"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    if current_user["ruolo"] != UserRole.ADMIN.value:
+        # Gli allievi vedono solo le loro richieste
+        query["utente_id"] = current_user["id"]
+    
+    requests = await db.richieste_pagamento.find(query, {"_id": 0}).sort("data_creazione", -1).to_list(100)
+    
+    # Arricchisci con dati utente per admin
+    if current_user["ruolo"] == UserRole.ADMIN.value:
+        for req in requests:
+            user = await db.utenti.find_one({"id": req["utente_id"]}, {"_id": 0, "nome": 1, "cognome": 1, "email": 1})
+            if user:
+                req["utente"] = user
+    
+    return requests
+
+@api_router.put("/richieste-pagamento/{request_id}/conferma")
+async def confirm_payment_request(request_id: str, request: Request):
+    """Allievo conferma pagamento effettuato"""
+    current_user = await require_auth(request)
+    
+    body = await request.json()
+    note_allievo = body.get("note_allievo", "")
+    
+    # Trova la richiesta
+    payment_request = await db.richieste_pagamento.find_one({"id": request_id})
+    if not payment_request:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+    
+    # Verifica che l'utente sia il proprietario
+    if payment_request["utente_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    # Aggiorna stato
+    await db.richieste_pagamento.update_one(
+        {"id": request_id},
+        {"$set": {
+            "stato": PaymentRequestStatus.CONFIRMED.value,
+            "data_conferma_allievo": datetime.now(timezone.utc),
+            "note_allievo": note_allievo
+        }}
+    )
+    
+    updated_request = await db.richieste_pagamento.find_one({"id": request_id}, {"_id": 0})
+    return updated_request
+
+@api_router.put("/richieste-pagamento/{request_id}/approva")
+async def approve_payment_request(request_id: str, request: Request):
+    """Admin approva pagamento"""
+    await require_admin(request)
+    
+    # Trova la richiesta
+    payment_request = await db.richieste_pagamento.find_one({"id": request_id})
+    if not payment_request:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+    
+    # Aggiorna stato richiesta
+    await db.richieste_pagamento.update_one(
+        {"id": request_id},
+        {"$set": {
+            "stato": PaymentRequestStatus.APPROVED.value,
+            "data_approvazione_admin": datetime.now(timezone.utc)
+        }}
+    )
+    
+    # Crea automaticamente entry in pagamenti
+    payment = {
+        "id": str(uuid4()),
+        "utente_id": payment_request["utente_id"],
+        "tipo": PaymentType.MONTHLY.value,  # Default mensile
+        "importo": payment_request["importo"],
+        "descrizione": payment_request["causale"],
+        "data_scadenza": payment_request["scadenza"],
+        "stato": PaymentStatus.PAID.value,
+        "data_pagamento": datetime.now(timezone.utc),
+        "visibile_utente": True,
+        "data_creazione": datetime.now(timezone.utc)
+    }
+    await db.pagamenti.insert_one(payment)
+    
+    # Aggiorna notifica per mostrare "Pagamento Approvato"
+    if payment_request.get("notification_id"):
+        await db.notifiche.update_one(
+            {"id": payment_request["notification_id"]},
+            {"$set": {
+                "titolo": "Pagamento Approvato",
+                "messaggio": f"Il tuo pagamento di €{payment_request['importo']:.2f} per {payment_request['causale']} è stato approvato!"
+            }}
+        )
+    
+    return {"message": "Pagamento approvato e registrato", "payment_id": payment["id"]}
+
+@api_router.put("/richieste-pagamento/{request_id}/rifiuta")
+async def reject_payment_request(request_id: str, request: Request):
+    """Admin rifiuta pagamento"""
+    await require_admin(request)
+    
+    body = await request.json()
+    motivo = body.get("motivo", "")
+    
+    # Trova la richiesta
+    payment_request = await db.richieste_pagamento.find_one({"id": request_id})
+    if not payment_request:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+    
+    # Aggiorna stato
+    await db.richieste_pagamento.update_one(
+        {"id": request_id},
+        {"$set": {
+            "stato": PaymentRequestStatus.REJECTED.value,
+            "note_admin": motivo
+        }}
+    )
+    
+    # Aggiorna notifica
+    if payment_request.get("notification_id"):
+        await db.notifiche.update_one(
+            {"id": payment_request["notification_id"]},
+            {"$set": {
+                "titolo": "Pagamento Rifiutato",
+                "messaggio": f"Il pagamento è stato rifiutato. Motivo: {motivo}"
+            }}
+        )
+    
+    return {"message": "Pagamento rifiutato"}
 
 # ===================== NOTIFICATION ROUTES =====================
 
@@ -1804,7 +2091,7 @@ async def create_notification(notif_data: NotificationCreate, request: Request):
     await require_admin(request)
     
     notification = {
-        "id": str(uuid.uuid4()),
+        "id": str(uuid4()),
         "titolo": notif_data.titolo,
         "messaggio": notif_data.messaggio,
         "tipo": notif_data.tipo,
@@ -1852,6 +2139,274 @@ async def delete_notification(notification_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Notifica non trovata")
     
     return {"message": "Notifica eliminata"}
+
+# ===================== CALENDAR / LESSON SLOTS =====================
+
+@api_router.get("/slot-lezioni")
+async def get_lesson_slots(
+    request: Request,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    insegnante_id: Optional[str] = None,
+    strumento: Optional[str] = None,
+    stato: Optional[str] = None
+):
+    """Get lesson slots - available for all authenticated users"""
+    current_user = await require_auth(request)
+    
+    query = {}
+    
+    # Date filter
+    if from_date:
+        try:
+            from_dt = datetime.fromisoformat(from_date)
+            query["data"] = {"$gte": from_dt}
+        except:
+            pass
+    
+    if to_date:
+        try:
+            to_dt = datetime.fromisoformat(to_date)
+            if "data" in query:
+                query["data"]["$lte"] = to_dt
+            else:
+                query["data"] = {"$lte": to_dt}
+        except:
+            pass
+    
+    # Other filters
+    if insegnante_id:
+        query["insegnante_id"] = insegnante_id
+    if strumento:
+        query["strumento"] = strumento
+    if stato:
+        query["stato"] = stato
+    
+    slots = await db.slot_lezioni.find(query, {"_id": 0}).sort("data", 1).to_list(500)
+    
+    # Add teacher info to each slot
+    for slot in slots:
+        teacher = await db.utenti.find_one({"id": slot["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+        if teacher:
+            slot["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+        
+        # Add student info if booked
+        if slot.get("allievo_id"):
+            student = await db.utenti.find_one({"id": slot["allievo_id"]}, {"_id": 0, "password_hash": 0})
+            if student:
+                slot["allievo"] = {"nome": student["nome"], "cognome": student["cognome"]}
+    
+    return slots
+
+@api_router.post("/slot-lezioni")
+async def create_lesson_slot(slot_data: LessonSlotCreate, request: Request):
+    """Create a new lesson slot (Admin only)"""
+    await require_admin(request)
+    
+    # Parse date and time
+    try:
+        slot_datetime = datetime.fromisoformat(f"{slot_data.data}T{slot_data.ora}")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato data/ora non valido. Usa YYYY-MM-DD e HH:MM")
+    
+    # Verify teacher exists
+    teacher = await db.utenti.find_one({"id": slot_data.insegnante_id, "ruolo": UserRole.TEACHER.value})
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Insegnante non trovato")
+    
+    # Check for overlapping slots for the same teacher
+    overlap_start = slot_datetime
+    overlap_end = slot_datetime + timedelta(minutes=slot_data.durata)
+    
+    existing_slot = await db.slot_lezioni.find_one({
+        "insegnante_id": slot_data.insegnante_id,
+        "stato": {"$ne": LessonSlotStatus.CANCELLED.value},
+        "$or": [
+            {"data": {"$gte": overlap_start, "$lt": overlap_end}},
+        ]
+    })
+    
+    if existing_slot:
+        raise HTTPException(status_code=400, detail="Esiste già uno slot in questo orario per questo insegnante")
+    
+    slot = {
+        "id": str(uuid4()),
+        "insegnante_id": slot_data.insegnante_id,
+        "strumento": slot_data.strumento,
+        "data": slot_datetime,
+        "durata": slot_data.durata,
+        "stato": LessonSlotStatus.AVAILABLE.value,
+        "allievo_id": None,
+        "note": None,
+        "data_creazione": datetime.now(timezone.utc),
+        "data_prenotazione": None
+    }
+    
+    await db.slot_lezioni.insert_one(slot)
+    slot.pop("_id", None)
+    
+    # Add teacher info
+    slot["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+    
+    return slot
+
+@api_router.put("/slot-lezioni/{slot_id}")
+async def update_lesson_slot(slot_id: str, slot_data: LessonSlotUpdate, request: Request):
+    """Update a lesson slot (Admin only)"""
+    await require_admin(request)
+    
+    slot = await db.slot_lezioni.find_one({"id": slot_id})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    
+    update_dict = {}
+    
+    if slot_data.insegnante_id:
+        # Verify teacher exists
+        teacher = await db.utenti.find_one({"id": slot_data.insegnante_id, "ruolo": UserRole.TEACHER.value})
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Insegnante non trovato")
+        update_dict["insegnante_id"] = slot_data.insegnante_id
+    
+    if slot_data.strumento:
+        update_dict["strumento"] = slot_data.strumento
+    
+    if slot_data.data and slot_data.ora:
+        try:
+            update_dict["data"] = datetime.fromisoformat(f"{slot_data.data}T{slot_data.ora}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato data/ora non valido")
+    
+    if slot_data.durata:
+        update_dict["durata"] = slot_data.durata
+    
+    if slot_data.note is not None:
+        update_dict["note"] = slot_data.note
+    
+    if update_dict:
+        await db.slot_lezioni.update_one({"id": slot_id}, {"$set": update_dict})
+    
+    updated_slot = await db.slot_lezioni.find_one({"id": slot_id}, {"_id": 0})
+    
+    # Add teacher info
+    teacher = await db.utenti.find_one({"id": updated_slot["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+    if teacher:
+        updated_slot["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+    
+    return updated_slot
+
+@api_router.delete("/slot-lezioni/{slot_id}")
+async def delete_lesson_slot(slot_id: str, request: Request):
+    """Delete a lesson slot (Admin only)"""
+    await require_admin(request)
+    
+    slot = await db.slot_lezioni.find_one({"id": slot_id})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    
+    # If slot is booked, mark as cancelled instead of deleting
+    if slot.get("allievo_id"):
+        await db.slot_lezioni.update_one(
+            {"id": slot_id},
+            {"$set": {"stato": LessonSlotStatus.CANCELLED.value}}
+        )
+        return {"message": "Slot annullato (era prenotato)"}
+    
+    result = await db.slot_lezioni.delete_one({"id": slot_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    
+    return {"message": "Slot eliminato"}
+
+@api_router.post("/slot-lezioni/{slot_id}/prenota")
+async def book_lesson_slot(slot_id: str, booking_data: BookLessonRequest, request: Request):
+    """Book a lesson slot - Students can book for themselves, Admin can book for any student"""
+    current_user = await require_auth(request)
+    
+    slot = await db.slot_lezioni.find_one({"id": slot_id})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    
+    if slot["stato"] != LessonSlotStatus.AVAILABLE.value:
+        raise HTTPException(status_code=400, detail="Questo slot non è disponibile")
+    
+    # Determine who is booking
+    if current_user["ruolo"] == UserRole.ADMIN.value and booking_data.allievo_id:
+        # Admin booking for a specific student
+        student = await db.utenti.find_one({"id": booking_data.allievo_id, "ruolo": UserRole.STUDENT.value})
+        if not student:
+            raise HTTPException(status_code=404, detail="Allievo non trovato")
+        booker_id = booking_data.allievo_id
+    elif current_user["ruolo"] == UserRole.STUDENT.value:
+        # Student booking for themselves
+        booker_id = current_user["id"]
+    else:
+        raise HTTPException(status_code=403, detail="Non autorizzato a prenotare")
+    
+    # Update slot
+    await db.slot_lezioni.update_one(
+        {"id": slot_id},
+        {
+            "$set": {
+                "stato": LessonSlotStatus.BOOKED.value,
+                "allievo_id": booker_id,
+                "data_prenotazione": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    updated_slot = await db.slot_lezioni.find_one({"id": slot_id}, {"_id": 0})
+    
+    # Add teacher and student info
+    teacher = await db.utenti.find_one({"id": updated_slot["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+    if teacher:
+        updated_slot["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+    
+    student = await db.utenti.find_one({"id": booker_id}, {"_id": 0, "password_hash": 0})
+    if student:
+        updated_slot["allievo"] = {"nome": student["nome"], "cognome": student["cognome"]}
+    
+    return updated_slot
+
+@api_router.post("/slot-lezioni/{slot_id}/annulla")
+async def cancel_booking(slot_id: str, request: Request):
+    """Cancel a booking - Student can cancel their own, Admin can cancel any"""
+    current_user = await require_auth(request)
+    
+    slot = await db.slot_lezioni.find_one({"id": slot_id})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    
+    if slot["stato"] != LessonSlotStatus.BOOKED.value:
+        raise HTTPException(status_code=400, detail="Questo slot non è prenotato")
+    
+    # Check authorization
+    if current_user["ruolo"] == UserRole.STUDENT.value:
+        if slot.get("allievo_id") != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Non puoi annullare la prenotazione di altri")
+    elif current_user["ruolo"] != UserRole.ADMIN.value:
+        raise HTTPException(status_code=403, detail="Non autorizzato")
+    
+    # Free up the slot
+    await db.slot_lezioni.update_one(
+        {"id": slot_id},
+        {
+            "$set": {
+                "stato": LessonSlotStatus.AVAILABLE.value,
+                "allievo_id": None,
+                "data_prenotazione": None
+            }
+        }
+    )
+    
+    updated_slot = await db.slot_lezioni.find_one({"id": slot_id}, {"_id": 0})
+    
+    # Add teacher info
+    teacher = await db.utenti.find_one({"id": updated_slot["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+    if teacher:
+        updated_slot["insegnante"] = {"nome": teacher["nome"], "cognome": teacher["cognome"]}
+    
+    return updated_slot
 
 # ===================== TEACHER STUDENTS =====================
 
@@ -1929,7 +2484,7 @@ async def seed_database():
         return {"message": "Database già popolato", "status": "skipped"}
     
     # Create default admin with email/password
-    admin_id = str(uuid.uuid4())
+    admin_id = str(uuid4())
     admin = {
         "id": admin_id,
         "ruolo": UserRole.ADMIN.value,
@@ -1954,7 +2509,7 @@ async def seed_database():
     
     teacher_ids = []
     for t in teachers:
-        teacher_id = str(uuid.uuid4())
+        teacher_id = str(uuid4())
         teacher_ids.append(teacher_id)
         teacher = {
             "id": teacher_id,
@@ -1972,7 +2527,7 @@ async def seed_database():
         
         # Teacher detail
         detail = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid4()),
             "utente_id": teacher_id,
             "specializzazione": t["spec"],
             "compenso_orario": t["compenso"],
@@ -1991,7 +2546,7 @@ async def seed_database():
     
     student_ids = []
     for s in students:
-        student_id = str(uuid.uuid4())
+        student_id = str(uuid4())
         student_ids.append(student_id)
         student = {
             "id": student_id,
@@ -2009,7 +2564,7 @@ async def seed_database():
         
         # Student detail
         detail = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid4()),
             "utente_id": student_id,
             "telefono": s["tel"],
             "data_nascita": None,
@@ -2022,9 +2577,9 @@ async def seed_database():
     now = datetime.now(timezone.utc)
     for i, sid in enumerate(student_ids[:3]):
         payment = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid4()),
             "utente_id": sid,
-            "tipo": PaymentType.STUDENT_FEE.value,
+            "tipo": PaymentType.MONTHLY.value,
             "importo": 150.0,
             "descrizione": f"Quota mensile Luglio 2025",
             "data_scadenza": now + timedelta(days=10 - i*5),
@@ -2041,7 +2596,7 @@ async def seed_database():
     ]
     for n in notifications:
         notif = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid4()),
             "titolo": n["titolo"],
             "messaggio": n["messaggio"],
             "tipo": "generale",
@@ -2066,6 +2621,326 @@ async def seed_database():
             "allievo": {"email": "giulia.ferrari@email.it", "password": "student123"}
         }
     }
+
+
+# ===================== CASH PAYMENTS (ADMIN ONLY) =====================
+
+class CashPaymentRequest(BaseModel):
+    allievo_id: str
+    importo: float
+    causale: str
+    note: Optional[str] = None
+
+@api_router.post("/pagamenti/contanti")
+async def create_cash_payment(request: Request, payment: CashPaymentRequest):
+    """Create cash payment (Admin only)"""
+    current_user = await require_admin(request)
+    
+    # Verify student exists
+    student = await db.utenti.find_one({"id": payment.allievo_id, "ruolo": UserRole.STUDENT.value}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Allievo non trovato")
+    
+    # Create payment record
+    payment_id = str(uuid4())
+    payment_data = {
+        "id": payment_id,
+        "allievo_id": payment.allievo_id,
+        "allievo_nome": student["nome"],
+        "allievo_cognome": student["cognome"],
+        "importo": payment.importo,
+        "metodo": "contanti",
+        "stato": "pagato",
+        "causale": payment.causale,
+        "note": payment.note,
+        "data_creazione": datetime.utcnow(),
+        "data_pagamento": datetime.utcnow(),
+        "operatore_id": current_user["id"],
+        "operatore_nome": f"{current_user['nome']} {current_user['cognome']}"
+    }
+    
+    await db.pagamenti.insert_one(payment_data)
+    
+    return {
+        "id": payment_id,
+        "message": "Pagamento in contanti registrato con successo",
+        "ricevuta": {
+            "numero": payment_id[:8].upper(),
+            "data": payment_data["data_pagamento"].isoformat(),
+            "allievo": f"{student['nome']} {student['cognome']}",
+            "importo": payment.importo,
+            "causale": payment.causale,
+            "operatore": payment_data["operatore_nome"]
+        }
+    }
+
+# ===================== PAYMENT STATUS UPDATE =====================
+
+class PaymentStatusUpdate(BaseModel):
+    stato: str
+
+@api_router.put("/pagamenti/{payment_id}/stato")
+async def update_payment_status(request: Request, payment_id: str, status: PaymentStatusUpdate):
+    """Update payment status (Admin only)"""
+    await require_admin(request)
+    
+    valid_statuses = ["in_attesa", "pagato", "scaduto", "annullato"]
+    if status.stato not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Stato non valido. Valori consentiti: {', '.join(valid_statuses)}")
+    
+    payment = await db.pagamenti.find_one({"id": payment_id})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Pagamento non trovato")
+    
+    update_data = {
+        "stato": status.stato,
+        "data_aggiornamento": datetime.utcnow()
+    }
+    
+    if status.stato == "pagato" and payment.get("stato") != "pagato":
+        update_data["data_pagamento"] = datetime.utcnow()
+    
+    await db.pagamenti.update_one({"id": payment_id}, {"$set": update_data})
+    
+    return {"message": f"Stato pagamento aggiornato a: {status.stato}"}
+
+# ===================== SECRETARY PERMISSIONS =====================
+
+class SecretaryPermissions(BaseModel):
+    visualizza_pagamenti: bool = False
+    modifica_pagamenti: bool = False
+    visualizza_rimborsi: bool = False
+    modifica_rimborsi: bool = False
+    visualizza_dati_burocratici: bool = False
+    gestione_utenti: bool = False
+    visualizza_calendario: bool = True
+    modifica_calendario: bool = False
+    invia_notifiche: bool = False
+
+@api_router.get("/segretaria/{user_id}/permessi")
+async def get_secretary_permissions(request: Request, user_id: str):
+    """Get secretary permissions (Admin only)"""
+    await require_admin(request)
+    
+    # Verify user is secretary
+    user = await db.utenti.find_one({"id": user_id, "ruolo": UserRole.SECRETARY.value}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Segretaria non trovata")
+    
+    permissions = await db.segretaria_permessi.find_one({"utente_id": user_id}, {"_id": 0})
+    if not permissions:
+        # Return default permissions
+        return SecretaryPermissions().dict()
+    
+    return permissions
+
+@api_router.put("/segretaria/{user_id}/permessi")
+async def update_secretary_permissions(request: Request, user_id: str, permissions: SecretaryPermissions):
+    """Update secretary permissions (Admin only)"""
+    await require_admin(request)
+    
+    # Verify user is secretary
+    user = await db.utenti.find_one({"id": user_id, "ruolo": UserRole.SECRETARY.value}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Segretaria non trovata")
+    
+    permissions_data = {
+        "utente_id": user_id,
+        **permissions.dict(),
+        "data_aggiornamento": datetime.utcnow()
+    }
+    
+    await db.segretaria_permessi.update_one(
+        {"utente_id": user_id},
+        {"$set": permissions_data},
+        upsert=True
+    )
+    
+    return {"message": "Permessi aggiornati con successo", "permissions": permissions.dict()}
+
+# ===================== LESSON NOTIFICATIONS =====================
+
+class LessonNotification(BaseModel):
+    destinatari: List[str] = []  # ['allievo', 'insegnante', 'entrambi']
+
+@api_router.post("/slot-lezioni/{slot_id}/notifica")
+async def send_lesson_notification(request: Request, slot_id: str, notif: LessonNotification):
+    """Send lesson notification (Admin or Teacher)"""
+    current_user = await require_teacher_or_admin(request)
+    
+    slot = await db.slot_lezioni.find_one({"id": slot_id}, {"_id": 0})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Lezione non trovata")
+    
+    # Get teacher info
+    teacher = await db.utenti.find_one({"id": slot["insegnante_id"]}, {"_id": 0, "password_hash": 0})
+    
+    # Get student info if booked
+    student = None
+    if slot.get("allievo_id"):
+        student = await db.utenti.find_one({"id": slot["allievo_id"]}, {"_id": 0, "password_hash": 0})
+    
+    # Format notification message
+    data_lezione = slot["data"]
+    if isinstance(data_lezione, str):
+        try:
+            data_obj = datetime.fromisoformat(data_lezione.replace('Z', '+00:00'))
+            data_formatted = data_obj.strftime("%d-%m-%Y")
+        except:
+            data_formatted = data_lezione
+    else:
+        data_formatted = data_lezione.strftime("%d-%m-%Y")
+    
+    message = f"📚 Lezione di {slot['strumento']}\n"
+    message += f"📅 Data: {data_formatted}\n"
+    # Gestisci campo ora che potrebbe non esistere in vecchi slot
+    ora_value = slot.get('ora')
+    if not ora_value:
+        # Fallback: estrai ora da campo data
+        data_field = slot.get('data')
+        if isinstance(data_field, str) and 'T' in data_field:
+            ora_value = data_field.split('T')[1][:5]
+        elif isinstance(data_field, datetime):
+            ora_value = data_field.strftime('%H:%M')
+        else:
+            ora_value = 'N/A'
+    message += f"🕐 Ora: {ora_value}\n"
+    if teacher:
+        message += f"👨‍🏫 Insegnante: {teacher['nome']} {teacher['cognome']}\n"
+    if student:
+        message += f"🎓 Allievo: {student['nome']} {student['cognome']}\n"
+    if slot.get("note"):
+        message += f"📝 Note: {slot['note']}\n"
+    
+    notifications_sent = []
+    
+    # Send to student
+    if student and ('allievo' in notif.destinatari or 'entrambi' in notif.destinatari):
+        notif_id = str(uuid4())
+        notif_data = {
+            "id": notif_id,
+            "utente_id": student["id"],
+            "tipo": "lezione",
+            "titolo": f"Promemoria: Lezione di {slot['strumento']}",
+            "messaggio": message,
+            "letta": False,
+            "data": datetime.utcnow(),
+            "riferimento_id": slot_id,
+            "riferimento_tipo": "slot_lezione"
+        }
+        await db.notifiche.insert_one(notif_data)
+        notifications_sent.append(f"{student['nome']} {student['cognome']}")
+    
+    # Send to teacher
+    if teacher and ('insegnante' in notif.destinatari or 'entrambi' in notif.destinatari):
+        notif_id = str(uuid4())
+        notif_data = {
+            "id": notif_id,
+            "utente_id": teacher["id"],
+            "tipo": "lezione",
+            "titolo": f"Promemoria: Lezione di {slot['strumento']}",
+            "messaggio": message,
+            "letta": False,
+            "data": datetime.utcnow(),
+            "riferimento_id": slot_id,
+            "riferimento_tipo": "slot_lezione"
+        }
+        await db.notifiche.insert_one(notif_data)
+        notifications_sent.append(f"{teacher['nome']} {teacher['cognome']}")
+    
+    return {
+        "message": f"Notifica inviata a: {', '.join(notifications_sent)}",
+        "destinatari": notifications_sent
+    }
+
+# ===================== ADMIN QUICK ACTIONS =====================
+
+@api_router.post("/admin/azioni/genera-pagamenti-mensili")
+async def generate_monthly_payments(request: Request):
+    """Generate monthly payments for all active students"""
+    await require_admin(request)
+    
+    students = await db.utenti.find({"ruolo": UserRole.STUDENT.value, "attivo": True}, {"_id": 0}).to_list(500)
+    
+    created_count = 0
+    current_month = datetime.utcnow().strftime("%m-%Y")
+    
+    for student in students:
+        # Check if payment already exists for this month
+        existing = await db.pagamenti.find_one({
+            "allievo_id": student["id"],
+            "causale": f"Quota mensile {current_month}"
+        })
+        
+        if not existing:
+            payment_id = str(uuid4())
+            scadenza = datetime.utcnow() + timedelta(days=10)
+            
+            payment_data = {
+                "id": payment_id,
+                "allievo_id": student["id"],
+                "allievo_nome": student["nome"],
+                "allievo_cognome": student["cognome"],
+                "importo": 100.0,  # Default amount
+                "metodo": "bonifico",
+                "stato": "in_attesa",
+                "causale": f"Quota mensile {current_month}",
+                "data_creazione": datetime.utcnow(),
+                "scadenza": scadenza
+            }
+            
+            await db.pagamenti.insert_one(payment_data)
+            created_count += 1
+    
+    return {"message": f"Generati {created_count} pagamenti mensili", "count": created_count}
+
+@api_router.post("/admin/azioni/invia-promemoria-pagamenti")
+async def send_payment_reminders(request: Request):
+    """Send payment reminders to students with pending payments"""
+    await require_admin(request)
+    
+    pending_payments = await db.pagamenti.find({"stato": "in_attesa"}, {"_id": 0}).to_list(500)
+    
+    sent_count = 0
+    for payment in pending_payments:
+        # Create notification
+        notif_id = str(uuid4())
+        
+        scadenza = payment.get("scadenza")
+        if scadenza:
+            if isinstance(scadenza, str):
+                try:
+                    scadenza_obj = datetime.fromisoformat(scadenza.replace('Z', '+00:00'))
+                    scadenza_str = scadenza_obj.strftime("%d-%m-%Y")
+                except:
+                    scadenza_str = scadenza
+            else:
+                scadenza_str = scadenza.strftime("%d-%m-%Y")
+        else:
+            scadenza_str = "Da definire"
+        
+        message = f"💰 Pagamento in attesa\n"
+        message += f"Importo: €{payment['importo']:.2f}\n"
+        message += f"Causale: {payment['causale']}\n"
+        message += f"Scadenza: {scadenza_str}\n"
+        
+        notif_data = {
+            "id": notif_id,
+            "utente_id": payment["allievo_id"],
+            "tipo": "pagamento",
+            "titolo": "Promemoria Pagamento",
+            "messaggio": message,
+            "letta": False,
+            "data": datetime.utcnow(),
+            "riferimento_id": payment["id"],
+            "riferimento_tipo": "pagamento"
+        }
+        
+        await db.notifiche.insert_one(notif_data)
+        sent_count += 1
+    
+    return {"message": f"Inviati {sent_count} promemoria", "count": sent_count}
+
 
 # ===================== MAIN ROUTES =====================
 

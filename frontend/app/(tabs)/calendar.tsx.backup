@@ -1,0 +1,1199 @@
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
+  TextInput,
+  Modal,
+  Pressable,
+  Platform,
+  Alert,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { lessonSlotsApi, usersApi } from '../../src/services/api';
+import { User, UserRole, LessonSlot, LessonSlotStatus, INSTRUMENTS } from '../../src/types';
+import { Colors, Typography, Spacing, BorderRadius, Layout } from '../../src/theme';
+import { formatDateForDisplay } from '../../src/utils/dateFormat';
+import { ConfirmDialog } from '../../src/components/ConfirmDialog';
+import { ErrorMessage } from '../../src/components/ErrorMessage';
+
+interface SlotFormData {
+  insegnante_id: string;
+  strumento: string;
+  data: string;
+  ora: string;
+  durata: number;
+}
+
+const initialFormData: SlotFormData = {
+  insegnante_id: '',
+  strumento: '',
+  data: '',
+  ora: '',
+  durata: 60,
+};
+
+const DURATIONS = [
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '1 ora' },
+];
+
+export default function CalendarScreen() {
+  const { user: currentUser } = useAuth();
+  const [slots, setSlots] = useState<LessonSlot[]>([]);
+  const [teachers, setTeachers] = useState<User[]>([]);
+  const [students, setStudents] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string>('');
+  
+  // Filters
+  const [selectedWeek, setSelectedWeek] = useState(0); // 0 = current week
+  const [filterInstrument, setFilterInstrument] = useState<string>('');
+  
+  // Modals
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showBookModal, setShowBookModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<LessonSlot | null>(null);
+  const [formData, setFormData] = useState<SlotFormData>(initialFormData);
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedStudentForBooking, setSelectedStudentForBooking] = useState<string>('');
+  const [slotToDelete, setSlotToDelete] = useState<LessonSlot | null>(null);
+  const [slotToCancel, setSlotToCancel] = useState<LessonSlot | null>(null);
+
+  const isAdmin = currentUser?.ruolo === UserRole.ADMIN;
+  const isTeacher = currentUser?.ruolo === UserRole.TEACHER;
+  const isStudent = currentUser?.ruolo === UserRole.STUDENT;
+
+  const fetchData = async () => {
+    try {
+      const [slotsData, usersData] = await Promise.all([
+        lessonSlotsApi.getAll(),
+        usersApi.getAll(),
+      ]);
+      setSlots(slotsData);
+      setTeachers(usersData.filter((u: User) => u.ruolo === UserRole.TEACHER));
+      setStudents(usersData.filter((u: User) => u.ruolo === UserRole.STUDENT));
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    
+    // Auto-refresh every 30 seconds to catch new appointments
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
+
+  // Get week dates
+  const getWeekDates = (weekOffset: number) => {
+    const today = new Date();
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay() + 1 + (weekOffset * 7)); // Monday
+    
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startOfWeek);
+      date.setDate(startOfWeek.getDate() + i);
+      dates.push(date);
+    }
+    return dates;
+  };
+
+  const weekDates = getWeekDates(selectedWeek);
+
+  const formatDate = (date: Date) => {
+    // Use local date format to avoid timezone issues
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const formatDisplayDate = (date: Date) => {
+    const days = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+    return `${days[date.getDay()]} ${date.getDate()}`;
+  };
+
+  const formatTime = (slot: LessonSlot) => {
+    // Usa direttamente campo ora se disponibile
+    if (slot.ora) {
+      return slot.ora;
+    }
+    // Fallback per compatibilità
+    const date = new Date(slot.data);
+    return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Filter slots by selected day and instrument
+  // Students only see their own booked lessons
+  // Teachers only see their own slots
+  const getSlotsForDate = (date: Date) => {
+    const dateStr = formatDate(date);
+    const filteredSlots = slots.filter(slot => {
+      // Normalize slot date to local date string for comparison
+      const slotDate = new Date(slot.data);
+      const slotDateStr = slotDate.getFullYear() + '-' + 
+                          String(slotDate.getMonth() + 1).padStart(2, '0') + '-' + 
+                          String(slotDate.getDate()).padStart(2, '0');
+      const matchesDate = slotDateStr === dateStr;
+      const matchesInstrument = !filterInstrument || slot.strumento === filterInstrument;
+      
+      // For students: only show their own booked lessons
+      if (isStudent) {
+        return matchesDate && matchesInstrument && 
+               slot.stato === LessonSlotStatus.BOOKED && 
+               slot.allievo_id === currentUser?.id;
+      }
+      
+      // For teachers: only show their own slots
+      if (isTeacher) {
+        return matchesDate && matchesInstrument && 
+               slot.insegnante_id === currentUser?.id;
+      }
+      
+      // For admin: show all slots
+      return matchesDate && matchesInstrument;
+    }).sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+    
+    return filteredSlots;
+  };
+
+  const getSlotStatusColor = (stato: string) => {
+    switch (stato) {
+      case LessonSlotStatus.AVAILABLE:
+        return Colors.success;
+      case LessonSlotStatus.BOOKED:
+        return Colors.warning;
+      case LessonSlotStatus.CANCELLED:
+        return Colors.error;
+      default:
+        return Colors.textSecondary;
+    }
+  };
+
+  const getSlotStatusLabel = (stato: string) => {
+    switch (stato) {
+      case LessonSlotStatus.AVAILABLE:
+        return 'Disponibile';
+      case LessonSlotStatus.BOOKED:
+        return 'Prenotato';
+      case LessonSlotStatus.CANCELLED:
+        return 'Annullato';
+      default:
+        return stato;
+    }
+  };
+
+  const handleOpenAddModal = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setFormData({
+      ...initialFormData,
+      data: formatDate(tomorrow),
+      ora: '10:00',
+    });
+    setShowAddModal(true);
+  };
+
+  const handleCreateSlot = async () => {
+    if (!formData.insegnante_id || !formData.strumento || !formData.data || !formData.ora) {
+      alert('Compila tutti i campi obbligatori');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Create slot
+      const newSlot = await lessonSlotsApi.create({
+        insegnante_id: formData.insegnante_id,
+        strumento: formData.strumento,
+        data: formData.data,
+        ora: formData.ora,
+        durata: formData.durata,
+      });
+      
+      // If student selected, book immediately
+      if (formData.allievo_id && newSlot.id) {
+        await lessonSlotsApi.book(newSlot.id, formData.allievo_id);
+      }
+      
+      setShowAddModal(false);
+      setFormData(initialFormData);
+      await fetchData();
+      alert(formData.allievo_id ? 'Lezione creata e prenotata!' : 'Slot creato con successo');
+    } catch (error: any) {
+      alert('Errore: ' + (error.response?.data?.detail || 'Impossibile creare slot'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleBookSlot = async (slot: LessonSlot) => {
+    if (isAdmin) {
+      setSelectedSlot(slot);
+      setSelectedStudentForBooking('');
+      setShowBookModal(true);
+    } else if (isStudent) {
+      // Student books for themselves
+      Alert.alert(
+        'Conferma Prenotazione',
+        `Vuoi prenotare questa lezione?\n\n${slot.strumento} - ${formatTime(slot)}\nInsegnante: ${slot.insegnante?.nome} ${slot.insegnante?.cognome}`,
+        [
+          { text: 'Annulla', style: 'cancel' },
+          {
+            text: 'Prenota',
+            onPress: async () => {
+              try {
+                await lessonSlotsApi.book(slot.id);
+                await fetchData();
+                Alert.alert('Successo', 'Lezione prenotata!');
+              } catch (error: any) {
+                Alert.alert('Errore', error.response?.data?.detail || 'Impossibile prenotare');
+              }
+            },
+          },
+        ]
+      );
+    }
+  };
+
+  const handleConfirmAdminBooking = async () => {
+    if (!selectedSlot || !selectedStudentForBooking) {
+      Alert.alert('Errore', 'Seleziona un allievo');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await lessonSlotsApi.book(selectedSlot.id, selectedStudentForBooking);
+      setShowBookModal(false);
+      await fetchData();
+      Alert.alert('Successo', 'Lezione prenotata per l\'allievo');
+    } catch (error: any) {
+      Alert.alert('Errore', error.response?.data?.detail || 'Impossibile prenotare');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancelBooking = (slot: LessonSlot) => {
+    setSlotToCancel(slot);
+    setShowCancelConfirm(true);
+  };
+
+  const confirmCancelBooking = async () => {
+    if (!slotToCancel) return;
+    
+    try {
+      await lessonSlotsApi.cancelBooking(slotToCancel.id);
+      setShowCancelConfirm(false);
+      setSlotToCancel(null);
+      await fetchData();
+      alert('Prenotazione annullata con successo');
+    } catch (error: any) {
+      alert('Errore: ' + (error.response?.data?.detail || 'Impossibile annullare la prenotazione'));
+    }
+  };
+
+  const handleDeleteSlot = (slot: LessonSlot) => {
+    setSlotToDelete(slot);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!slotToDelete) return;
+    
+    try {
+      await lessonSlotsApi.delete(slotToDelete.id);
+      setShowDeleteConfirm(false);
+      setSlotToDelete(null);
+      await fetchData();
+      alert('Slot eliminato con successo');
+    } catch (error: any) {
+      alert('Errore: ' + (error.response?.data?.detail || 'Impossibile eliminare lo slot'));
+    }
+  };
+
+  const handleSendNotification = async (slot: LessonSlot) => {
+    try {
+      const recipients = ['entrambi']; // Send to both teacher and student
+      await lessonSlotsApi.sendNotification(slot.id, recipients);
+      alert('Notifica inviata con successo');
+    } catch (error: any) {
+      alert('Errore: ' + (error.response?.data?.detail || 'Impossibile inviare la notifica'));
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Week Navigation */}
+      <View style={styles.weekNav}>
+        <TouchableOpacity 
+          style={styles.weekNavButton}
+          onPress={() => setSelectedWeek(prev => prev - 1)}
+        >
+          <Ionicons name="chevron-back" size={24} color={Colors.primary} />
+        </TouchableOpacity>
+        
+        <View style={styles.weekNavCenter}>
+          <Text style={styles.weekNavTitle}>
+            {selectedWeek === 0 ? 'Questa Settimana' : 
+             selectedWeek === 1 ? 'Prossima Settimana' :
+             selectedWeek === -1 ? 'Settimana Scorsa' :
+             `${weekDates[0].getDate()}/${weekDates[0].getMonth() + 1} - ${weekDates[6].getDate()}/${weekDates[6].getMonth() + 1}`}
+          </Text>
+          {selectedWeek !== 0 && (
+            <TouchableOpacity onPress={() => setSelectedWeek(0)}>
+              <Text style={styles.todayLink}>Oggi</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        <TouchableOpacity 
+          style={styles.weekNavButton}
+          onPress={() => setSelectedWeek(prev => prev + 1)}
+        >
+          <Ionicons name="chevron-forward" size={24} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Instrument Filter */}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterContainer}
+        contentContainerStyle={styles.filterContent}
+      >
+        <TouchableOpacity
+          style={[styles.filterChip, !filterInstrument && styles.filterChipActive]}
+          onPress={() => setFilterInstrument('')}
+        >
+          <Text style={[styles.filterChipText, !filterInstrument && styles.filterChipTextActive]}>
+            Tutti
+          </Text>
+        </TouchableOpacity>
+        {INSTRUMENTS.map(inst => (
+          <TouchableOpacity
+            key={inst.value}
+            style={[styles.filterChip, filterInstrument === inst.value && styles.filterChipActive]}
+            onPress={() => setFilterInstrument(inst.value)}
+          >
+            <Text style={[styles.filterChipText, filterInstrument === inst.value && styles.filterChipTextActive]}>
+              {inst.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Calendar Grid */}
+      <ScrollView
+        style={styles.calendarContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+        }
+      >
+        {weekDates.map((date, index) => {
+          const daySlots = getSlotsForDate(date);
+          const isToday = formatDate(date) === formatDate(new Date());
+          
+          return (
+            <View key={index} style={[styles.daySection, isToday && styles.daySectionToday]}>
+              <View style={styles.dayHeader}>
+                <Text style={[styles.dayTitle, isToday && styles.dayTitleToday]}>
+                  {formatDisplayDate(date)}
+                </Text>
+                {isToday && (
+                  <View style={styles.todayBadge}>
+                    <Text style={styles.todayBadgeText}>OGGI</Text>
+                  </View>
+                )}
+              </View>
+              
+              {daySlots.length === 0 ? (
+                <Text style={styles.noSlotsText}>
+                  {isStudent ? 'Nessuna lezione programmata' : 'Nessuno slot disponibile'}
+                </Text>
+              ) : (
+                daySlots.map(slot => (
+                  <View key={slot.id} style={styles.slotCard}>
+                    {/* Top row: Time + Info */}
+                    <View style={styles.slotCardTop}>
+                      <View style={styles.slotTime}>
+                        <Text style={styles.slotTimeText}>{formatTime(slot)}</Text>
+                        <Text style={styles.slotDuration}>{slot.durata} min</Text>
+                      </View>
+                      
+                      <View style={styles.slotInfo}>
+                        <Text style={styles.slotInstrument}>{slot.strumento}</Text>
+                        <Text style={styles.slotTeacher}>
+                          🎓 Prof. {slot.insegnante?.nome} {slot.insegnante?.cognome}
+                        </Text>
+                        {/* Show student info for admin */}
+                        {isAdmin && slot.allievo && (
+                          <Text style={styles.slotStudentAdmin}>
+                            👤 Allievo: {slot.allievo.nome} {slot.allievo.cognome}
+                          </Text>
+                        )}
+                        {/* For students: just show "La tua lezione" */}
+                        {isStudent && slot.stato === LessonSlotStatus.BOOKED && (
+                          <Text style={styles.slotConfirmed}>✓ Lezione confermata</Text>
+                        )}
+                      </View>
+                    </View>
+                    
+                    {/* Bottom row: Status + Actions (ONLY for Admin) */}
+                    {isAdmin && (
+                      <View style={styles.slotActions}>
+                        <View style={[styles.statusBadge, { backgroundColor: getSlotStatusColor(slot.stato) + '20' }]}>
+                          <Text style={[styles.statusText, { color: getSlotStatusColor(slot.stato) }]}>
+                            {getSlotStatusLabel(slot.stato)}
+                          </Text>
+                        </View>
+                        
+                        <View style={styles.actionButtons}>
+                          {/* Admin can book available slots for students */}
+                          {slot.stato === LessonSlotStatus.AVAILABLE && (
+                            <TouchableOpacity 
+                              style={styles.bookButton}
+                              onPress={() => handleBookSlot(slot)}
+                            >
+                              <Ionicons name="person-add" size={24} color={Colors.success} />
+                            </TouchableOpacity>
+                          )}
+                          
+                          {/* Admin can cancel bookings */}
+                          {slot.stato === LessonSlotStatus.BOOKED && (
+                            <>
+                              <TouchableOpacity 
+                                style={styles.notificationButton}
+                                onPress={() => handleSendNotification(slot)}
+                              >
+                                <Ionicons name="notifications-outline" size={24} color={Colors.primary} />
+                              </TouchableOpacity>
+                              
+                              <TouchableOpacity 
+                                style={styles.cancelButton}
+                                onPress={() => handleCancelBooking(slot)}
+                              >
+                                <Ionicons name="close-circle" size={28} color={Colors.warning} />
+                              </TouchableOpacity>
+                            </>
+                          )}
+                          
+                          {/* Admin can delete available slots */}
+                          {slot.stato === LessonSlotStatus.AVAILABLE && (
+                            <TouchableOpacity 
+                              style={styles.deleteButton}
+                              onPress={() => handleDeleteSlot(slot)}
+                            >
+                              <Ionicons name="trash-outline" size={22} color={Colors.error} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      {/* Add Slot Modal (Admin only) */}
+      <Modal
+        visible={showAddModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowAddModal(false)}>
+          <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Nuovo Slot Lezione</Text>
+              <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Teacher Selection */}
+              <Text style={styles.inputLabel}>Insegnante *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectRow}>
+                {teachers.map(teacher => (
+                  <TouchableOpacity
+                    key={teacher.id}
+                    style={[
+                      styles.selectOption,
+                      formData.insegnante_id === teacher.id && styles.selectOptionActive
+                    ]}
+                    onPress={() => setFormData({ ...formData, insegnante_id: teacher.id })}
+                  >
+                    <Text style={[
+                      styles.selectOptionText,
+                      formData.insegnante_id === teacher.id && styles.selectOptionTextActive
+                    ]}>
+                      {teacher.nome} {teacher.cognome}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Student Selection (Optional) */}
+              <Text style={styles.inputLabel}>Allievo (opzionale)</Text>
+              <Text style={styles.inputHint}>Se selezioni un allievo, la lezione sarà prenotata direttamente per lui</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.selectOption,
+                    !formData.allievo_id && styles.selectOptionActive
+                  ]}
+                  onPress={() => setFormData({ ...formData, allievo_id: undefined })}
+                >
+                  <Text style={[
+                    styles.selectOptionText,
+                    !formData.allievo_id && styles.selectOptionTextActive
+                  ]}>
+                    Nessuno (disponibile)
+                  </Text>
+                </TouchableOpacity>
+                {students.map(student => (
+                  <TouchableOpacity
+                    key={student.id}
+                    style={[
+                      styles.selectOption,
+                      formData.allievo_id === student.id && styles.selectOptionActive
+                    ]}
+                    onPress={() => setFormData({ ...formData, allievo_id: student.id })}
+                  >
+                    <Text style={[
+                      styles.selectOptionText,
+                      formData.allievo_id === student.id && styles.selectOptionTextActive
+                    ]}>
+                      {student.nome} {student.cognome}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Instrument Selection */}
+              <Text style={styles.inputLabel}>Strumento *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectRow}>
+                {INSTRUMENTS.map(inst => (
+                  <TouchableOpacity
+                    key={inst.value}
+                    style={[
+                      styles.selectOption,
+                      formData.strumento === inst.value && styles.selectOptionActive
+                    ]}
+                    onPress={() => setFormData({ ...formData, strumento: inst.value })}
+                  >
+                    <Text style={[
+                      styles.selectOptionText,
+                      formData.strumento === inst.value && styles.selectOptionTextActive
+                    ]}>
+                      {inst.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Date */}
+              <Text style={styles.inputLabel}>Data *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="DD-MM-YYYY"
+                placeholderTextColor={Colors.textTertiary}
+                value={formData.data}
+                onChangeText={(text) => setFormData({ ...formData, data: text })}
+              />
+
+              {/* Time */}
+              <Text style={styles.inputLabel}>Ora *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="HH:MM"
+                placeholderTextColor={Colors.textTertiary}
+                value={formData.ora}
+                onChangeText={(text) => setFormData({ ...formData, ora: text })}
+              />
+
+              {/* Duration */}
+              <Text style={styles.inputLabel}>Durata</Text>
+              <View style={styles.durationRow}>
+                {DURATIONS.map(dur => (
+                  <TouchableOpacity
+                    key={dur.value}
+                    style={[
+                      styles.durationOption,
+                      formData.durata === dur.value && styles.durationOptionActive
+                    ]}
+                    onPress={() => setFormData({ ...formData, durata: dur.value })}
+                  >
+                    <Text style={[
+                      styles.durationText,
+                      formData.durata === dur.value && styles.durationTextActive
+                    ]}>
+                      {dur.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Submit */}
+              <TouchableOpacity
+                style={[styles.submitButton, submitting && styles.buttonDisabled]}
+                onPress={handleCreateSlot}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator color={Colors.surface} />
+                ) : (
+                  <>
+                    <Ionicons name="add-circle" size={20} color={Colors.surface} />
+                    <Text style={styles.submitButtonText}>Crea Slot</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Book Modal (Admin selecting student) */}
+      <Modal
+        visible={showBookModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowBookModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowBookModal(false)}>
+          <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Prenota per Allievo</Text>
+              <TouchableOpacity onPress={() => setShowBookModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedSlot && (
+              <View style={styles.slotSummary}>
+                <Text style={styles.slotSummaryText}>
+                  {selectedSlot.strumento} - {formatTime(selectedSlot)}
+                </Text>
+                <Text style={styles.slotSummarySubtext}>
+                  Prof. {selectedSlot.insegnante?.nome} {selectedSlot.insegnante?.cognome}
+                </Text>
+              </View>
+            )}
+
+            <Text style={styles.inputLabel}>Seleziona Allievo *</Text>
+            <ScrollView style={styles.studentList}>
+              {students.map(student => (
+                <TouchableOpacity
+                  key={student.id}
+                  style={[
+                    styles.studentOption,
+                    selectedStudentForBooking === student.id && styles.studentOptionActive
+                  ]}
+                  onPress={() => setSelectedStudentForBooking(student.id)}
+                >
+                  <Ionicons 
+                    name={selectedStudentForBooking === student.id ? "radio-button-on" : "radio-button-off"} 
+                    size={20} 
+                    color={selectedStudentForBooking === student.id ? Colors.primary : Colors.textSecondary} 
+                  />
+                  <Text style={styles.studentName}>{student.nome} {student.cognome}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.submitButton, submitting && styles.buttonDisabled]}
+              onPress={handleConfirmAdminBooking}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator color={Colors.surface} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color={Colors.surface} />
+                  <Text style={styles.submitButtonText}>Conferma Prenotazione</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        visible={showDeleteConfirm}
+        title="Elimina Lezione"
+        message={`Sei sicuro di voler eliminare questa lezione di ${slotToDelete?.strumento}?`}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          setShowDeleteConfirm(false);
+          setSlotToDelete(null);
+        }}
+        confirmText="Elimina"
+        cancelText="Annulla"
+        danger={true}
+      />
+
+      {/* Cancel Booking Confirmation Dialog */}
+      <ConfirmDialog
+        visible={showCancelConfirm}
+        title="Annulla Prenotazione"
+        message={`Sei sicuro di voler annullare questa prenotazione?${slotToCancel?.allievo ? ` L'allievo ${slotToCancel.allievo.nome} ${slotToCancel.allievo.cognome} non verrà più notificato.` : ''}`}
+        onConfirm={confirmCancelBooking}
+        onCancel={() => {
+          setShowCancelConfirm(false);
+          setSlotToCancel(null);
+        }}
+        confirmText="Annulla Prenotazione"
+        cancelText="Indietro"
+        danger={true}
+      />
+
+      {/* FAB for Admin */}
+      {isAdmin && (
+        <TouchableOpacity style={styles.fab} onPress={handleOpenAddModal}>
+          <Ionicons name="add" size={28} color={Colors.surface} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+
+  // Week Navigation
+  weekNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  weekNavButton: {
+    padding: Spacing.sm,
+  },
+  weekNavCenter: {
+    alignItems: 'center',
+  },
+  weekNavTitle: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  todayLink: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.primary,
+    marginTop: Spacing.xs,
+  },
+
+  // Filters
+  filterContainer: {
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    maxHeight: 56,
+  },
+  filterContent: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.background,
+    marginRight: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  filterChipText: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.textSecondary,
+  },
+  filterChipTextActive: {
+    color: Colors.surface,
+    fontWeight: Typography.fontWeight.medium,
+  },
+
+  // Calendar
+  calendarContainer: {
+    flex: 1,
+  },
+  daySection: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  daySectionToday: {
+    backgroundColor: Colors.primary + '08',
+  },
+  dayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  dayTitle: {
+    fontSize: Typography.fontSize.caption,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  dayTitleToday: {
+    color: Colors.primary,
+  },
+  todayBadge: {
+    marginLeft: Spacing.sm,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+  },
+  todayBadgeText: {
+    fontSize: Typography.fontSize.tiny,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.surface,
+  },
+  noSlotsText: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.textTertiary,
+    fontStyle: 'italic',
+  },
+
+  // Slot Card - Improved for mobile
+  slotCard: {
+    flexDirection: 'column',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  slotCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  slotTime: {
+    alignItems: 'center',
+    marginRight: Spacing.md,
+    minWidth: 50,
+  },
+  slotTimeText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.primary,
+  },
+  slotDuration: {
+    fontSize: Typography.fontSize.tiny,
+    color: Colors.textTertiary,
+  },
+  slotInfo: {
+    flex: 1,
+  },
+  slotInstrument: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+    textTransform: 'capitalize',
+  },
+  slotTeacher: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.textSecondary,
+  },
+  slotStudent: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.warning,
+    marginTop: Spacing.xs,
+  },
+  slotStudentAdmin: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.primary,
+    marginTop: Spacing.xs,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  slotConfirmed: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.success,
+    marginTop: Spacing.xs,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  slotActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  statusBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+  },
+  statusText: {
+    fontSize: Typography.fontSize.tiny,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  bookButton: {
+    padding: Spacing.xs,
+  },
+  notificationButton: {
+    padding: Spacing.xs,
+  },
+  cancelButton: {
+    padding: Spacing.xs,
+  },
+  deleteButton: {
+    padding: Spacing.xs,
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    paddingTop: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Platform.OS === 'ios' ? Spacing.huge : Spacing.xl,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+  modalTitle: {
+    fontSize: Typography.fontSize.h2,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  inputLabel: {
+    fontSize: Typography.fontSize.caption,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  inputHint: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.textTertiary,
+    marginBottom: Spacing.sm,
+    fontStyle: 'italic',
+  },
+  input: {
+    height: Layout.inputHeight,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.lg,
+    fontSize: Typography.fontSize.body,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+  },
+  selectRow: {
+    flexDirection: 'row',
+    marginBottom: Spacing.sm,
+  },
+  selectOption: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.background,
+    marginRight: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  selectOptionActive: {
+    backgroundColor: Colors.primary + '15',
+    borderColor: Colors.primary,
+  },
+  selectOptionText: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+  },
+  selectOptionTextActive: {
+    color: Colors.primary,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  durationOption: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  durationOptionActive: {
+    backgroundColor: Colors.primary + '15',
+    borderColor: Colors.primary,
+  },
+  durationText: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+  },
+  durationTextActive: {
+    color: Colors.primary,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  submitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    height: Layout.buttonHeight,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  submitButtonText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.surface,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+
+  // Book Modal
+  slotSummary: {
+    backgroundColor: Colors.background,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+  },
+  slotSummaryText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.textPrimary,
+    textTransform: 'capitalize',
+  },
+  slotSummarySubtext: {
+    fontSize: Typography.fontSize.caption,
+    color: Colors.textSecondary,
+  },
+  studentList: {
+    maxHeight: 250,
+  },
+  studentOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.background,
+    marginBottom: Spacing.sm,
+    gap: Spacing.md,
+  },
+  studentOptionActive: {
+    backgroundColor: Colors.primary + '10',
+  },
+  studentName: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.textPrimary,
+  },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: Spacing.xl,
+    right: Spacing.xl,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: Colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+});
