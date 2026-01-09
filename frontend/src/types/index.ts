@@ -6,8 +6,9 @@ export enum UserRole {
 
 export enum AttendanceStatus {
   PRESENT = 'presente',
-  ABSENT = 'assente',
-  JUSTIFIED = 'giustificato'
+  ABSENT_JUSTIFIED = 'assente_giustificato',
+  ABSENT_UNJUSTIFIED = 'assente_non_giustificato',
+  MAKEUP = 'recupero'
 }
 
 export enum PaymentStatus {
