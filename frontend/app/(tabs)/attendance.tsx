@@ -158,14 +158,14 @@ export default function AttendanceScreen() {
         await attendanceApi.update(editingAttendance.id, {
           stato: formData.stato,
           note: formData.note,
-          recupero_data: formData.recupero_data || undefined,
+          recupero_data: formData.recupero_data ? convertDisplayToAPI(formData.recupero_data) : undefined,
         });
         Alert.alert('Successo', 'Presenza aggiornata con successo');
       } else {
-        // Create
+        // Create - convert DD-MM-YYYY to YYYY-MM-DD for API
         await attendanceApi.create({
           allievo_id: formData.allievo_id,
-          data: formData.data,
+          data: convertDisplayToAPI(formData.data),
           stato: formData.stato,
           note: formData.note || undefined,
         });
