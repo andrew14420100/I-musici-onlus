@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { attendanceApi, usersApi } from '../../src/services/api';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/theme';
-import { formatDateForDisplay } from '../../src/utils/dateFormat';
+import { formatDateForDisplay, getTodayForDisplay, convertDisplayToAPI, convertAPIToDisplay } from '../../src/utils/dateFormat';
 import { UserRole, AttendanceStatus, User, Attendance } from '../../src/types';
 
 // Status options for the dropdown
