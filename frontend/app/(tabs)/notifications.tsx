@@ -179,6 +179,52 @@ export default function NotificationsScreen() {
     setSelectedStudents([]);
   };
 
+  // Funzioni per eventi (tutti gli utenti)
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const selectAllUsers = () => {
+    setSelectedUsers(allUsers.map(u => u.id));
+  };
+
+  const deselectAllUsers = () => {
+    setSelectedUsers([]);
+  };
+
+  const selectUsersByRole = (role: string) => {
+    const usersOfRole = allUsers.filter(u => u.ruolo === role).map(u => u.id);
+    setSelectedUsers(prev => {
+      const newSelection = [...prev];
+      usersOfRole.forEach(id => {
+        if (!newSelection.includes(id)) {
+          newSelection.push(id);
+        }
+      });
+      return newSelection;
+    });
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'amministratore': return '👑 Admin';
+      case 'insegnante': return '👨‍🏫 Insegnante';
+      case 'allievo': return '🎓 Allievo';
+      default: return role;
+    }
+  };
+
+  // Raggruppa utenti per ruolo
+  const usersByRole = {
+    insegnanti: allUsers.filter(u => u.ruolo === 'insegnante'),
+    allievi: allUsers.filter(u => u.ruolo === 'allievo'),
+    admin: allUsers.filter(u => u.ruolo === 'amministratore'),
+  };
+
   const handleCreatePaymentRequest = async () => {
     setErrorMessage('');
     
