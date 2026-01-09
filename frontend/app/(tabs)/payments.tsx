@@ -110,6 +110,14 @@ export default function PaymentsScreen() {
     scaduti: payments.filter(p => p.stato === 'scaduto').length,
   };
 
+  // Filter chip data
+  const filterChips = [
+    { key: 'tutti', label: 'Tutti', count: payments.length, color: Colors.primary, icon: 'list' },
+    { key: 'pagato', label: 'Pagati', count: stats.pagati, color: Colors.success, icon: 'checkmark-circle' },
+    { key: 'in_attesa', label: 'In Attesa', count: stats.inAttesa, color: Colors.warning, icon: 'time' },
+    { key: 'scaduto', label: 'Scaduti', count: stats.scaduti, color: Colors.error, icon: 'alert-circle' },
+  ];
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -120,6 +128,64 @@ export default function PaymentsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Total Card */}
+      <View style={styles.totalCard}>
+        <View style={styles.totalIconContainer}>
+          <Ionicons name="cash" size={24} color={Colors.surface} />
+        </View>
+        <View style={styles.totalInfo}>
+          <Text style={styles.totalLabel}>Totale</Text>
+          <Text style={styles.totalAmount}>€{stats.totale.toFixed(2)}</Text>
+        </View>
+      </View>
+
+      {/* Compact Filter Chips */}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterScrollContent}
+        style={styles.filterScrollView}
+      >
+        {filterChips.map((chip) => {
+          const isActive = filter === chip.key;
+          return (
+            <TouchableOpacity
+              key={chip.key}
+              style={[
+                styles.filterChip,
+                isActive && { backgroundColor: chip.color }
+              ]}
+              onPress={() => setFilter(chip.key as any)}
+              activeOpacity={0.7}
+            >
+              <Ionicons 
+                name={chip.icon as any} 
+                size={16} 
+                color={isActive ? Colors.surface : chip.color} 
+              />
+              <Text style={[
+                styles.filterChipText,
+                isActive && styles.filterChipTextActive
+              ]}>
+                {chip.label}
+              </Text>
+              <View style={[
+                styles.filterChipBadge,
+                { backgroundColor: isActive ? 'rgba(255,255,255,0.3)' : `${chip.color}20` }
+              ]}>
+                <Text style={[
+                  styles.filterChipBadgeText,
+                  { color: isActive ? Colors.surface : chip.color }
+                ]}>
+                  {chip.count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Payment List */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
@@ -128,193 +194,50 @@ export default function PaymentsScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Total Card */}
-        <View style={styles.totalCard}>
-          <View style={styles.totalIconContainer}>
-            <Ionicons name="cash" size={28} color={Colors.surface} />
+        {filteredPayments.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="card-outline" size={64} color={Colors.textTertiary} />
+            <Text style={styles.emptyTitle}>Nessun pagamento</Text>
+            <Text style={styles.emptyText}>Nessun pagamento trovato per questo filtro</Text>
           </View>
-          <View style={styles.totalInfo}>
-            <Text style={styles.totalLabel}>Totale Pagamenti</Text>
-            <Text style={styles.totalAmount}>€{stats.totale.toFixed(2)}</Text>
-          </View>
-        </View>
-
-        {/* Filters - MIGLIORATI per mobile */}
-        <View style={styles.filtersContainer}>
-          <Text style={styles.filtersTitle}>Filtra per Stato</Text>
-          <View style={styles.filtersGrid}>
+        ) : (
+          filteredPayments.map(payment => (
             <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filter === 'tutti' && styles.filterButtonActive,
-                { backgroundColor: filter === 'tutti' ? Colors.primary : Colors.surface }
-              ]}
-              onPress={() => setFilter('tutti')}
+              key={payment.id}
+              style={styles.paymentCard}
               activeOpacity={0.7}
             >
-              <Ionicons 
-                name="list" 
-                size={20} 
-                color={filter === 'tutti' ? Colors.surface : Colors.textPrimary} 
-              />
-              <Text style={[
-                styles.filterButtonText,
-                filter === 'tutti' && styles.filterButtonTextActive
-              ]}>Tutti</Text>
-              <View style={[
-                styles.filterBadge,
-                { backgroundColor: filter === 'tutti' ? 'rgba(255,255,255,0.3)' : Colors.background }
-              ]}>
-                <Text style={[
-                  styles.filterBadgeText,
-                  { color: filter === 'tutti' ? Colors.surface : Colors.textPrimary }
-                ]}>{payments.length}</Text>
+              <View style={[styles.statusIndicator, { backgroundColor: getStatusColor(payment.stato) }]} />
+              
+              <View style={[styles.paymentIconContainer, { backgroundColor: getStatusColor(payment.stato) + '15' }]}>
+                <Ionicons 
+                  name={getStatusIcon(payment.stato)} 
+                  size={24} 
+                  color={getStatusColor(payment.stato)} 
+                />
               </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filter === 'pagato' && styles.filterButtonActive,
-                { backgroundColor: filter === 'pagato' ? Colors.success : Colors.surface }
-              ]}
-              onPress={() => setFilter('pagato')}
-              activeOpacity={0.7}
-            >
-              <Ionicons 
-                name="checkmark-circle" 
-                size={20} 
-                color={filter === 'pagato' ? Colors.surface : Colors.success} 
-              />
-              <Text style={[
-                styles.filterButtonText,
-                filter === 'pagato' && styles.filterButtonTextActive
-              ]}>Pagati</Text>
-              <View style={[
-                styles.filterBadge,
-                { backgroundColor: filter === 'pagato' ? 'rgba(255,255,255,0.3)' : Colors.successLight }
-              ]}>
-                <Text style={[
-                  styles.filterBadgeText,
-                  { color: filter === 'pagato' ? Colors.surface : Colors.success }
-                ]}>{stats.pagati}</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filter === 'in_attesa' && styles.filterButtonActive,
-                { backgroundColor: filter === 'in_attesa' ? Colors.warning : Colors.surface }
-              ]}
-              onPress={() => setFilter('in_attesa')}
-              activeOpacity={0.7}
-            >
-              <Ionicons 
-                name="time" 
-                size={20} 
-                color={filter === 'in_attesa' ? Colors.surface : Colors.warning} 
-              />
-              <Text style={[
-                styles.filterButtonText,
-                filter === 'in_attesa' && styles.filterButtonTextActive
-              ]}>In Attesa</Text>
-              <View style={[
-                styles.filterBadge,
-                { backgroundColor: filter === 'in_attesa' ? 'rgba(255,255,255,0.3)' : Colors.warningLight }
-              ]}>
-                <Text style={[
-                  styles.filterBadgeText,
-                  { color: filter === 'in_attesa' ? Colors.surface : Colors.warning }
-                ]}>{stats.inAttesa}</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                filter === 'scaduto' && styles.filterButtonActive,
-                { backgroundColor: filter === 'scaduto' ? Colors.error : Colors.surface }
-              ]}
-              onPress={() => setFilter('scaduto')}
-              activeOpacity={0.7}
-            >
-              <Ionicons 
-                name="alert-circle" 
-                size={20} 
-                color={filter === 'scaduto' ? Colors.surface : Colors.error} 
-              />
-              <Text style={[
-                styles.filterButtonText,
-                filter === 'scaduto' && styles.filterButtonTextActive
-              ]}>Scaduti</Text>
-              <View style={[
-                styles.filterBadge,
-                { backgroundColor: filter === 'scaduto' ? 'rgba(255,255,255,0.3)' : Colors.errorLight }
-              ]}>
-                <Text style={[
-                  styles.filterBadgeText,
-                  { color: filter === 'scaduto' ? Colors.surface : Colors.error }
-                ]}>{stats.scaduti}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Payment List */}
-        <View style={styles.listSection}>
-          <Text style={styles.listTitle}>
-            {filter === 'tutti' ? 'Tutti i Pagamenti' : 
-             filter === 'pagato' ? 'Pagamenti Completati' :
-             filter === 'in_attesa' ? 'In Attesa di Pagamento' :
-             'Pagamenti Scaduti'}
-          </Text>
-          
-          {filteredPayments.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="card-outline" size={64} color={Colors.textTertiary} />
-              <Text style={styles.emptyTitle}>Nessun pagamento</Text>
-              <Text style={styles.emptyText}>Nessun pagamento trovato per questo filtro</Text>
-            </View>
-          ) : (
-            filteredPayments.map(payment => (
-              <TouchableOpacity
-                key={payment.id}
-                style={styles.paymentCard}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.statusIndicator, { backgroundColor: getStatusColor(payment.stato) }]} />
-                
-                <View style={[styles.paymentIconContainer, { backgroundColor: getStatusColor(payment.stato) + '15' }]}>
-                  <Ionicons 
-                    name={getStatusIcon(payment.stato)} 
-                    size={24} 
-                    color={getStatusColor(payment.stato)} 
-                  />
+              
+              <View style={styles.paymentInfo}>
+                <Text style={styles.paymentDescription} numberOfLines={2}>{payment.descrizione}</Text>
+                <View style={styles.paymentMeta}>
+                  <Ionicons name="calendar-outline" size={14} color={Colors.textSecondary} />
+                  <Text style={styles.paymentDate}>Scadenza: {formatDate(payment.data_scadenza)}</Text>
                 </View>
-                
-                <View style={styles.paymentInfo}>
-                  <Text style={styles.paymentDescription} numberOfLines={2}>{payment.descrizione}</Text>
-                  <View style={styles.paymentMeta}>
-                    <Ionicons name="calendar-outline" size={14} color={Colors.textSecondary} />
-                    <Text style={styles.paymentDate}>Scadenza: {formatDate(payment.data_scadenza)}</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.paymentRight}>
-                  <Text style={[styles.paymentAmount, { color: payment.stato === 'pagato' ? Colors.success : Colors.textPrimary }]}>
-                    €{payment.importo.toFixed(2)}
+              </View>
+              
+              <View style={styles.paymentRight}>
+                <Text style={[styles.paymentAmount, { color: payment.stato === 'pagato' ? Colors.success : Colors.textPrimary }]}>
+                  €{payment.importo.toFixed(2)}
+                </Text>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(payment.stato) + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(payment.stato) }]}>
+                    {getStatusLabel(payment.stato)}
                   </Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(payment.stato) + '20' }]}>
-                    <Text style={[styles.statusText, { color: getStatusColor(payment.stato) }]}>
-                      {getStatusLabel(payment.stato)}
-                    </Text>
-                  </View>
                 </View>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -331,112 +254,94 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.background,
   },
-  scrollView: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingBottom: Spacing.xxl,
-  },
   
-  // Total Card
+  // Total Card - Più compatto
   totalCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.primary,
-    margin: Spacing.lg,
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.lg,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-      android: { elevation: 4 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
+      android: { elevation: 3 },
     }),
   },
   totalIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: BorderRadius.full,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: Spacing.lg,
+    marginRight: Spacing.md,
   },
   totalInfo: {
     flex: 1,
   },
   totalLabel: {
-    fontSize: Typography.fontSize.caption,
+    fontSize: Typography.fontSize.small,
     color: 'rgba(255,255,255,0.8)',
-    marginBottom: Spacing.xs,
   },
   totalAmount: {
-    fontSize: 32,
+    fontSize: Typography.fontSize.h2,
     fontWeight: Typography.fontWeight.bold,
     color: Colors.surface,
   },
 
-  // Filters - MIGLIORATI
-  filtersContainer: {
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.xl,
+  // Compact Filter Chips
+  filterScrollView: {
+    maxHeight: 52,
+    marginTop: Spacing.md,
   },
-  filtersTitle: {
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.semibold,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
+  filterScrollContent: {
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
   },
-  filtersGrid: {
-    gap: Spacing.md,
-  },
-  filterButton: {
+  filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    minHeight: 60,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-      android: { elevation: 2 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+      android: { elevation: 1 },
     }),
   },
-  filterButtonActive: {
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 },
-      android: { elevation: 4 },
-    }),
-  },
-  filterButtonText: {
-    flex: 1,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.semibold,
+  filterChipText: {
+    fontSize: Typography.fontSize.small,
+    fontWeight: Typography.fontWeight.medium,
     color: Colors.textPrimary,
-    marginLeft: Spacing.md,
   },
-  filterButtonTextActive: {
+  filterChipTextActive: {
     color: Colors.surface,
   },
-  filterBadge: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: BorderRadius.full,
+  filterChipBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
   },
-  filterBadgeText: {
-    fontSize: Typography.fontSize.caption,
+  filterChipBadgeText: {
+    fontSize: Typography.fontSize.tiny,
     fontWeight: Typography.fontWeight.bold,
   },
 
-  // List Section
-  listSection: {
-    paddingHorizontal: Spacing.lg,
+  // List
+  scrollView: {
+    flex: 1,
+    marginTop: Spacing.md,
   },
-  listTitle: {
-    fontSize: Typography.fontSize.h3,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.lg,
+  contentContainer: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.xxl,
   },
 
   // Payment Cards
@@ -444,12 +349,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
     overflow: 'hidden',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-      android: { elevation: 2 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+      android: { elevation: 1 },
     }),
   },
   statusIndicator: {
@@ -457,11 +362,11 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 4,
+    width: 3,
   },
   paymentIconContainer: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
@@ -475,7 +380,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.body,
     fontWeight: Typography.fontWeight.semibold,
     color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   paymentMeta: {
     flexDirection: 'row',
@@ -493,7 +398,7 @@ const styles = StyleSheet.create({
   paymentAmount: {
     fontSize: Typography.fontSize.h3,
     fontWeight: Typography.fontWeight.bold,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   statusBadge: {
     paddingHorizontal: Spacing.sm,
