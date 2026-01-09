@@ -44,7 +44,7 @@ export default function AttendanceScreen() {
   // Form states
   const [formData, setFormData] = useState({
     allievo_id: '',
-    data: new Date().toISOString().split('T')[0],
+    data: getTodayForDisplay(),
     stato: AttendanceStatus.PRESENT as string,
     recupero_data: '',
     note: '',
