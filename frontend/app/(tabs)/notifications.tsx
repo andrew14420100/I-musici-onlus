@@ -23,6 +23,7 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
   const [students, setStudents] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]); // Tutti gli utenti per eventi
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
@@ -35,6 +36,7 @@ export default function NotificationsScreen() {
   
   // Form states
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]); // Per eventi (tutti)
   const [paymentForm, setPaymentForm] = useState({
     importo: '',
     causale: '',
@@ -70,10 +72,14 @@ export default function NotificationsScreen() {
         setPaymentRequests(paymentReqData);
       }
       
-      // Carica studenti per admin
+      // Carica studenti per pagamenti e tutti gli utenti per eventi
       if (isAdmin) {
         const studentsData = await usersApi.getAll('allievo', true);
         setStudents(studentsData);
+        
+        // Carica tutti gli utenti per gli eventi
+        const allUsersData = await usersApi.getAll();
+        setAllUsers(allUsersData.filter((u: User) => u.id !== currentUser?.id)); // Escludi se stesso
       }
     } catch (error) {
       console.error('Error fetching data:', error);
