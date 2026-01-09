@@ -7,16 +7,15 @@ import {
   RefreshControl,
   ActivityIndicator,
   TouchableOpacity,
-  Image
+  Image,
+  Platform
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { statsApi, seedApi, adminActionsApi } from '../../src/services/api';
 import { AdminStats } from '../../src/types';
-import { StatCard } from '../../src/components/StatCard';
-import { Colors, Typography, Spacing, BorderRadius, Shadows, Layout } from '../../src/theme';
-import { formatDateForDisplay } from '../../src/utils/dateFormat';
+import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/theme';
 import { ErrorMessage } from '../../src/components/ErrorMessage';
 import { useRouter } from 'expo-router';
 
@@ -117,11 +116,6 @@ export default function HomeScreen() {
     return 'Buonasera';
   };
 
-  const getUserDisplayName = () => {
-    if (!user) return 'Utente';
-    return `${user.nome} ${user.cognome}`;
-  };
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -132,29 +126,26 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header with Gradient */}
+      {/* Compact Header */}
       <LinearGradient
-        colors={[Colors.primary, Colors.primaryLight]}
+        colors={[Colors.primary, '#1a4fa0']}
         style={styles.headerGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
-        <View style={styles.headerContent}>
-          <View style={styles.userInfo}>
-            <Text style={styles.greeting}>{getUserGreeting()}</Text>
-            <Text style={styles.userName}>{getUserDisplayName()}</Text>
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleText}>
-                {isAdmin ? '👑 Amministratore' : isTeacher ? '👨‍🏫 Insegnante' : '🎓 Allievo'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.avatarContainer}>
+        <View style={styles.headerTop}>
+          <View style={styles.logoContainer}>
             <Image 
               source={require('../../assets/logo.png')} 
-              style={styles.avatarImage}
+              style={styles.logoImage}
               resizeMode="contain"
             />
+          </View>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle}>Accademia de "I Musici"</Text>
+            <Text style={styles.headerSubtitle}>
+              {getUserGreeting()}, {user?.nome || 'Admin'}
+            </Text>
           </View>
         </View>
       </LinearGradient>
@@ -170,38 +161,79 @@ export default function HomeScreen() {
       >
         {isAdmin && stats && (
           <>
-            {/* Quick Stats */}
-            <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
-                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.admin}15` }]}>
-                  <Ionicons name="people" size={24} color={Colors.admin} />
-                </View>
-                <Text style={styles.statValue}>{stats.totale_utenti}</Text>
-                <Text style={styles.statLabel}>Utenti Totali</Text>
+            {/* Stats Section Title */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Panoramica</Text>
+              <View style={styles.roleBadgeInline}>
+                <Ionicons name="shield-checkmark" size={14} color={Colors.primary} />
+                <Text style={styles.roleBadgeText}>Admin</Text>
+              </View>
+            </View>
+
+            {/* Improved Stats Grid - 2x2 */}
+            <View style={styles.statsContainer}>
+              <View style={styles.statsRow}>
+                <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2']}
+                    style={styles.statGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <View style={styles.statIconBg}>
+                      <Ionicons name="people" size={22} color="#fff" />
+                    </View>
+                    <Text style={styles.statValue}>{stats.totale_utenti}</Text>
+                    <Text style={styles.statLabel}>Utenti Totali</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
+                  <LinearGradient
+                    colors={['#f093fb', '#f5576c']}
+                    style={styles.statGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <View style={styles.statIconBg}>
+                      <Ionicons name="school" size={22} color="#fff" />
+                    </View>
+                    <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
+                    <Text style={styles.statLabel}>Insegnanti</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
 
-              <View style={styles.statCard}>
-                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.teacher}15` }]}>
-                  <Ionicons name="school" size={24} color={Colors.teacher} />
-                </View>
-                <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
-                <Text style={styles.statLabel}>Insegnanti</Text>
-              </View>
+              <View style={styles.statsRow}>
+                <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
+                  <LinearGradient
+                    colors={['#4facfe', '#00f2fe']}
+                    style={styles.statGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <View style={styles.statIconBg}>
+                      <Ionicons name="musical-notes" size={22} color="#fff" />
+                    </View>
+                    <Text style={styles.statValue}>{stats.totale_allievi}</Text>
+                    <Text style={styles.statLabel}>Allievi</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
 
-              <View style={styles.statCard}>
-                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.student}15` }]}>
-                  <Ionicons name="musical-notes" size={24} color={Colors.student} />
-                </View>
-                <Text style={styles.statValue}>{stats.totale_allievi}</Text>
-                <Text style={styles.statLabel}>Allievi</Text>
-              </View>
-
-              <View style={styles.statCard}>
-                <View style={[styles.statIconContainer, { backgroundColor: `${Colors.success}15` }]}>
-                  <Ionicons name="cash" size={24} color={Colors.success} />
-                </View>
-                <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
-                <Text style={styles.statLabel}>Incassi</Text>
+                <TouchableOpacity style={styles.statCard} activeOpacity={0.8}>
+                  <LinearGradient
+                    colors={['#11998e', '#38ef7d']}
+                    style={styles.statGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <View style={styles.statIconBg}>
+                      <Ionicons name="cash" size={22} color="#fff" />
+                    </View>
+                    <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
+                    <Text style={styles.statLabel}>Incassi</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -215,13 +247,13 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.primary}15` }]}>
-                  <Ionicons name="person-add" size={28} color={Colors.primary} />
+                  <Ionicons name="person-add" size={24} color={Colors.primary} />
                 </View>
                 <View style={styles.actionContent}>
                   <Text style={styles.actionTitle}>Nuovo Utente</Text>
                   <Text style={styles.actionDesc}>Aggiungi allievo o insegnante</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -230,13 +262,13 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.accent}15` }]}>
-                  <Ionicons name="calendar" size={28} color={Colors.accent} />
+                  <Ionicons name="calendar" size={24} color={Colors.accent} />
                 </View>
                 <View style={styles.actionContent}>
                   <Text style={styles.actionTitle}>Registro Presenze</Text>
                   <Text style={styles.actionDesc}>Gestisci lezioni e presenze</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -246,16 +278,16 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.warning}15` }]}>
-                  <Ionicons name="cash" size={28} color={Colors.warning} />
+                  <Ionicons name="wallet" size={24} color={Colors.warning} />
                 </View>
                 <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Genera Pagamenti Mensili</Text>
-                  <Text style={styles.actionDesc}>Crea pagamenti per tutti gli allievi</Text>
+                  <Text style={styles.actionTitle}>Genera Pagamenti</Text>
+                  <Text style={styles.actionDesc}>Crea pagamenti mensili</Text>
                 </View>
                 {actionLoading === 'payments' ? (
-                  <ActivityIndicator color={Colors.warning} />
+                  <ActivityIndicator color={Colors.warning} size="small" />
                 ) : (
-                  <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
                 )}
               </TouchableOpacity>
 
@@ -266,16 +298,16 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.error}15` }]}>
-                  <Ionicons name="notifications" size={28} color={Colors.error} />
+                  <Ionicons name="notifications" size={24} color={Colors.error} />
                 </View>
                 <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Invia Promemoria Pagamenti</Text>
-                  <Text style={styles.actionDesc}>Notifica allievi con pagamenti in sospeso</Text>
+                  <Text style={styles.actionTitle}>Invia Promemoria</Text>
+                  <Text style={styles.actionDesc}>Notifica pagamenti in sospeso</Text>
                 </View>
                 {actionLoading === 'reminders' ? (
-                  <ActivityIndicator color={Colors.error} />
+                  <ActivityIndicator color={Colors.error} size="small" />
                 ) : (
-                  <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
                 )}
               </TouchableOpacity>
 
@@ -286,16 +318,16 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.success}15` }]}>
-                  <Ionicons name="refresh" size={28} color={Colors.success} />
+                  <Ionicons name="refresh" size={24} color={Colors.success} />
                 </View>
                 <View style={styles.actionContent}>
                   <Text style={styles.actionTitle}>Popola Database</Text>
                   <Text style={styles.actionDesc}>Genera dati di test</Text>
                 </View>
                 {seeding ? (
-                  <ActivityIndicator color={Colors.success} />
+                  <ActivityIndicator color={Colors.success} size="small" />
                 ) : (
-                  <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
                 )}
               </TouchableOpacity>
 
@@ -332,57 +364,46 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   
-  // Header
+  // Compact Header
   headerGradient: {
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xxl,
-    paddingHorizontal: Spacing.xl,
-    ...Shadows.medium,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingBottom: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
   },
-  headerContent: {
+  headerTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  userInfo: {
-    flex: 1,
-  },
-  greeting: {
-    fontSize: Typography.fontSize.caption,
-    color: 'rgba(255,255,255,0.8)',
-    fontWeight: Typography.fontWeight.medium,
-  },
-  userName: {
-    fontSize: Typography.fontSize.h2,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.surface,
-    marginTop: Spacing.xs,
-  },
-  roleBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-    alignSelf: 'flex-start',
-    marginTop: Spacing.sm,
-  },
-  roleText: {
-    fontSize: Typography.fontSize.small,
-    color: Colors.surface,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  avatarContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surface,
+  logoContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.95)',
     justifyContent: 'center',
     alignItems: 'center',
-    ...Shadows.large,
+    marginRight: Spacing.md,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
+      android: { elevation: 4 },
+    }),
   },
-  avatarImage: {
-    width: 64,
-    height: 64,
+  logoImage: {
+    width: 40,
+    height: 40,
+  },
+  headerTitleContainer: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: Typography.fontSize.h3,
+    fontWeight: Typography.fontWeight.bold,
+    color: '#fff',
+    letterSpacing: 0.3,
+  },
+  headerSubtitle: {
+    fontSize: Typography.fontSize.small,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
   },
 
   // Content
@@ -390,54 +411,87 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: Spacing.xl,
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xxl,
   },
 
-  // Stats Grid
-  statsGrid: {
+  // Section Header
+  sectionHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    alignItems: 'center',
-    ...Shadows.medium,
-  },
-  statIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.md,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.md,
   },
+  roleBadgeInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${Colors.primary}15`,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    gap: 4,
+  },
+  roleBadgeText: {
+    fontSize: Typography.fontSize.tiny,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.primary,
+  },
+
+  // Improved Stats Grid
+  statsContainer: {
+    marginBottom: Spacing.lg,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
+      android: { elevation: 4 },
+    }),
+  },
+  statGradient: {
+    padding: Spacing.md,
+    alignItems: 'center',
+    minHeight: 110,
+    justifyContent: 'center',
+  },
+  statIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
   statValue: {
-    fontSize: Typography.fontSize.h1,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 2,
   },
   statLabel: {
-    fontSize: Typography.fontSize.caption,
-    color: Colors.textSecondary,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
     textAlign: 'center',
   },
 
   // Section
   section: {
-    marginBottom: Spacing.xl,
+    marginTop: Spacing.sm,
   },
   sectionTitle: {
-    fontSize: Typography.fontSize.h3,
-    fontWeight: Typography.fontWeight.semibold,
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.bold,
     color: Colors.textPrimary,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
 
   // Action Cards
@@ -446,22 +500,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.md,
-    ...Shadows.medium,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+      android: { elevation: 1 },
+    }),
   },
   seedCard: {
     borderWidth: 1,
-    borderColor: Colors.success,
+    borderColor: Colors.border,
     borderStyle: 'dashed',
   },
   actionIconContainer: {
-    width: 56,
-    height: 56,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: Spacing.lg,
+    marginRight: Spacing.md,
   },
   actionContent: {
     flex: 1,
@@ -470,7 +527,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.body,
     fontWeight: Typography.fontWeight.semibold,
     color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
+    marginBottom: 2,
   },
   actionDesc: {
     fontSize: Typography.fontSize.caption,
