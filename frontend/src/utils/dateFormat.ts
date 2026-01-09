@@ -92,3 +92,57 @@ export const parseDateFromDisplay = (dateStr: string): Date | null => {
     return null;
   }
 };
+
+/**
+ * Convert DD-MM-YYYY to YYYY-MM-DD for API
+ */
+export const convertDisplayToAPI = (dateStr: string): string => {
+  if (!dateStr) return '';
+  
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    
+    // Check if it's already in YYYY-MM-DD format
+    if (parts[0].length === 4) return dateStr;
+    
+    // Convert DD-MM-YYYY to YYYY-MM-DD
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  } catch (error) {
+    return dateStr;
+  }
+};
+
+/**
+ * Get today's date in DD-MM-YYYY format
+ */
+export const getTodayForDisplay = (): string => {
+  const today = new Date();
+  const day = String(today.getDate()).padStart(2, '0');
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const year = today.getFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+/**
+ * Convert API date (YYYY-MM-DD or ISO) to DD-MM-YYYY for form input
+ */
+export const convertAPIToDisplay = (dateStr: string): string => {
+  if (!dateStr) return '';
+  
+  try {
+    // Handle ISO format
+    const datePart = dateStr.split('T')[0];
+    const parts = datePart.split('-');
+    
+    if (parts.length !== 3) return dateStr;
+    
+    // If it's already DD-MM-YYYY (day is first and has 2 digits, year is last with 4 digits)
+    if (parts[0].length === 2 && parts[2].length === 4) return dateStr;
+    
+    // Convert YYYY-MM-DD to DD-MM-YYYY
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  } catch (error) {
+    return dateStr;
+  }
+};
