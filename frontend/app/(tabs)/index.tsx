@@ -126,25 +126,23 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Compact Header */}
+      {/* Header */}
       <LinearGradient
         colors={[Colors.primary, '#1a4fa0']}
         style={styles.headerGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
-        <View style={styles.headerTop}>
-          <View style={styles.logoContainer}>
-            <Image 
-              source={require('../../assets/logo.png')} 
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </View>
-          <View style={styles.headerTitleContainer}>
+        <View style={styles.headerContent}>
+          <Image 
+            source={require('../../assets/logo.png')} 
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+          <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Accademia de "I Musici"</Text>
             <Text style={styles.headerSubtitle}>
-              {getUserGreeting()}, {user?.nome || 'Admin'}
+              {getUserGreeting()}, {user?.nome || 'Admin'} • Amministratore
             </Text>
           </View>
         </View>
@@ -161,178 +159,135 @@ export default function HomeScreen() {
       >
         {isAdmin && stats && (
           <>
-            {/* Stats Section Title */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Panoramica</Text>
-              <View style={styles.roleBadgeInline}>
-                <Ionicons name="shield-checkmark" size={14} color={Colors.primary} />
-                <Text style={styles.roleBadgeText}>Admin</Text>
-              </View>
-            </View>
+            {/* Stats Grid - 2x2 same size */}
+            <View style={styles.statsGrid}>
+              <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name="people" size={22} color={Colors.primary} />
+                </View>
+                <Text style={styles.statValue}>{stats.totale_utenti}</Text>
+                <Text style={styles.statLabel}>Utenti Totali</Text>
+              </TouchableOpacity>
 
-            {/* Improved Stats Grid - 2x2 */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statsRow}>
-                <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
-                  <LinearGradient
-                    colors={['#667eea', '#764ba2']}
-                    style={styles.statGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <View style={styles.statIconBg}>
-                      <Ionicons name="people" size={22} color="#fff" />
-                    </View>
-                    <Text style={styles.statValue}>{stats.totale_utenti}</Text>
-                    <Text style={styles.statLabel}>Utenti Totali</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
+              <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name="school" size={22} color={Colors.primary} />
+                </View>
+                <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
+                <Text style={styles.statLabel}>Insegnanti</Text>
+              </TouchableOpacity>
 
-                <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
-                  <LinearGradient
-                    colors={['#f093fb', '#f5576c']}
-                    style={styles.statGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <View style={styles.statIconBg}>
-                      <Ionicons name="school" size={22} color="#fff" />
-                    </View>
-                    <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
-                    <Text style={styles.statLabel}>Insegnanti</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name="musical-notes" size={22} color={Colors.primary} />
+                </View>
+                <Text style={styles.statValue}>{stats.totale_allievi}</Text>
+                <Text style={styles.statLabel}>Allievi</Text>
+              </TouchableOpacity>
 
-              <View style={styles.statsRow}>
-                <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
-                  <LinearGradient
-                    colors={['#4facfe', '#00f2fe']}
-                    style={styles.statGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <View style={styles.statIconBg}>
-                      <Ionicons name="musical-notes" size={22} color="#fff" />
-                    </View>
-                    <Text style={styles.statValue}>{stats.totale_allievi}</Text>
-                    <Text style={styles.statLabel}>Allievi</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.statCard} activeOpacity={0.8}>
-                  <LinearGradient
-                    colors={['#11998e', '#38ef7d']}
-                    style={styles.statGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <View style={styles.statIconBg}>
-                      <Ionicons name="cash" size={22} color="#fff" />
-                    </View>
-                    <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
-                    <Text style={styles.statLabel}>Incassi</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity style={styles.statCard} activeOpacity={0.8}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name="cash" size={22} color={Colors.primary} />
+                </View>
+                <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
+                <Text style={styles.statLabel}>Incassi</Text>
+              </TouchableOpacity>
             </View>
 
             {/* Action Cards */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Azioni Rapide</Text>
-              
-              <TouchableOpacity 
-                style={styles.actionCard} 
-                onPress={navigateToUsers}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.primary}15` }]}>
-                  <Ionicons name="person-add" size={24} color={Colors.primary} />
-                </View>
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Nuovo Utente</Text>
-                  <Text style={styles.actionDesc}>Aggiungi allievo o insegnante</Text>
-                </View>
+            <Text style={styles.sectionTitle}>Azioni Rapide</Text>
+            
+            <TouchableOpacity 
+              style={styles.actionCard} 
+              onPress={navigateToUsers}
+              activeOpacity={0.8}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="person-add" size={22} color={Colors.primary} />
+              </View>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Nuovo Utente</Text>
+                <Text style={styles.actionDesc}>Aggiungi allievo o insegnante</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionCard} 
+              onPress={navigateToAttendance}
+              activeOpacity={0.8}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="calendar" size={22} color={Colors.primary} />
+              </View>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Registro Presenze</Text>
+                <Text style={styles.actionDesc}>Gestisci lezioni e presenze</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionCard}
+              onPress={handleGenerateMonthlyPayments}
+              disabled={actionLoading === 'payments'}
+              activeOpacity={0.8}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="wallet" size={22} color={Colors.primary} />
+              </View>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Genera Pagamenti</Text>
+                <Text style={styles.actionDesc}>Crea pagamenti mensili</Text>
+              </View>
+              {actionLoading === 'payments' ? (
+                <ActivityIndicator color={Colors.primary} size="small" />
+              ) : (
                 <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
-              </TouchableOpacity>
+              )}
+            </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.actionCard} 
-                onPress={navigateToAttendance}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.accent}15` }]}>
-                  <Ionicons name="calendar" size={24} color={Colors.accent} />
-                </View>
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Registro Presenze</Text>
-                  <Text style={styles.actionDesc}>Gestisci lezioni e presenze</Text>
-                </View>
+            <TouchableOpacity 
+              style={styles.actionCard}
+              onPress={handleSendPaymentReminders}
+              disabled={actionLoading === 'reminders'}
+              activeOpacity={0.8}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="notifications" size={22} color={Colors.primary} />
+              </View>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Invia Promemoria</Text>
+                <Text style={styles.actionDesc}>Notifica pagamenti in sospeso</Text>
+              </View>
+              {actionLoading === 'reminders' ? (
+                <ActivityIndicator color={Colors.primary} size="small" />
+              ) : (
                 <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
-              </TouchableOpacity>
+              )}
+            </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.actionCard}
-                onPress={handleGenerateMonthlyPayments}
-                disabled={actionLoading === 'payments'}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.warning}15` }]}>
-                  <Ionicons name="wallet" size={24} color={Colors.warning} />
-                </View>
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Genera Pagamenti</Text>
-                  <Text style={styles.actionDesc}>Crea pagamenti mensili</Text>
-                </View>
-                {actionLoading === 'payments' ? (
-                  <ActivityIndicator color={Colors.warning} size="small" />
-                ) : (
-                  <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
-                )}
-              </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.actionCard, styles.seedCard]}
+              onPress={handleSeedData}
+              disabled={seeding}
+              activeOpacity={0.8}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="refresh" size={22} color={Colors.textSecondary} />
+              </View>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>Popola Database</Text>
+                <Text style={styles.actionDesc}>Genera dati di test</Text>
+              </View>
+              {seeding ? (
+                <ActivityIndicator color={Colors.textSecondary} size="small" />
+              ) : (
+                <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+              )}
+            </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.actionCard}
-                onPress={handleSendPaymentReminders}
-                disabled={actionLoading === 'reminders'}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.error}15` }]}>
-                  <Ionicons name="notifications" size={24} color={Colors.error} />
-                </View>
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Invia Promemoria</Text>
-                  <Text style={styles.actionDesc}>Notifica pagamenti in sospeso</Text>
-                </View>
-                {actionLoading === 'reminders' ? (
-                  <ActivityIndicator color={Colors.error} size="small" />
-                ) : (
-                  <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.actionCard, styles.seedCard]}
-                onPress={handleSeedData}
-                disabled={seeding}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.actionIconContainer, { backgroundColor: `${Colors.success}15` }]}>
-                  <Ionicons name="refresh" size={24} color={Colors.success} />
-                </View>
-                <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Popola Database</Text>
-                  <Text style={styles.actionDesc}>Genera dati di test</Text>
-                </View>
-                {seeding ? (
-                  <ActivityIndicator color={Colors.success} size="small" />
-                ) : (
-                  <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
-                )}
-              </TouchableOpacity>
-
-              {error && <ErrorMessage message={error} />}
-            </View>
+            {error && <ErrorMessage message={error} />}
           </>
         )}
 
@@ -364,41 +319,30 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   
-  // Compact Header
+  // Header
   headerGradient: {
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 16,
     paddingBottom: Spacing.lg,
     paddingHorizontal: Spacing.lg,
   },
-  headerTop: {
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  logoContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.md,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
-      android: { elevation: 4 },
-    }),
-  },
   logoImage: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    marginRight: Spacing.md,
   },
-  headerTitleContainer: {
+  headerTextContainer: {
     flex: 1,
   },
   headerTitle: {
     fontSize: Typography.fontSize.h3,
     fontWeight: Typography.fontWeight.bold,
     color: '#fff',
-    letterSpacing: 0.3,
   },
   headerSubtitle: {
     fontSize: Typography.fontSize.small,
@@ -415,83 +359,53 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
   },
 
-  // Section Header
-  sectionHeader: {
+  // Stats Grid - equal size cards
+  statsGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  roleBadgeInline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: `${Colors.primary}15`,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-    gap: 4,
-  },
-  roleBadgeText: {
-    fontSize: Typography.fontSize.tiny,
-    fontWeight: Typography.fontWeight.semibold,
-    color: Colors.primary,
-  },
-
-  // Improved Stats Grid
-  statsContainer: {
+    flexWrap: 'wrap',
+    marginHorizontal: -Spacing.xs,
     marginBottom: Spacing.lg,
   },
-  statsRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
   statCard: {
-    flex: 1,
-    borderRadius: BorderRadius.lg,
-    overflow: 'hidden',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
-      android: { elevation: 4 },
-    }),
+    width: '50%',
+    padding: Spacing.xs,
   },
-  statGradient: {
-    padding: Spacing.md,
+  statCardInner: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
     alignItems: 'center',
-    minHeight: 110,
+    height: 120,
     justifyContent: 'center',
   },
-  statIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+  statIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: `${Colors.primary}12`,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.sm,
   },
   statValue: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#fff',
+    color: Colors.textPrimary,
     marginBottom: 2,
   },
   statLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.9)',
-    fontWeight: '500',
+    fontSize: 12,
+    color: Colors.textSecondary,
     textAlign: 'center',
   },
 
-  // Section
-  section: {
-    marginTop: Spacing.sm,
-  },
+  // Section Title
   sectionTitle: {
     fontSize: Typography.fontSize.body,
     fontWeight: Typography.fontWeight.bold,
     color: Colors.textPrimary,
     marginBottom: Spacing.md,
+    marginTop: Spacing.sm,
   },
 
   // Action Cards
@@ -503,19 +417,21 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 },
       android: { elevation: 1 },
     }),
   },
   seedCard: {
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
     borderStyle: 'dashed',
   },
   actionIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: `${Colors.primary}10`,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.md,
