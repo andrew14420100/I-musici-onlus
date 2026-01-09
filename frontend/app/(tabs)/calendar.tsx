@@ -5,7 +5,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { lessonSlotsApi, usersApi } from '../../src/services/api';
 import { User, LessonSlot } from '../../src/types';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
-import { formatDateForDisplay } from '../../src/utils/dateFormat';
+import { formatDateForDisplay, getTodayForDisplay, convertDisplayToAPI } from '../../src/utils/dateFormat';
 import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 import { ErrorMessage } from '../../src/components/ErrorMessage';
 
