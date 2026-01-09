@@ -108,11 +108,11 @@ export default function CalendarScreen() {
 
       setError('');
       
-      // Crea slot
+      // Crea slot - converti data dal formato DD-MM-YYYY a YYYY-MM-DD per l'API
       const newSlot = await lessonSlotsApi.create({
         insegnante_id: formData.insegnante_id,
         strumento: formData.strumento,
-        data: formData.data,
+        data: convertDisplayToAPI(formData.data),
         ora: formData.ora,
         durata: formData.durata
       });
