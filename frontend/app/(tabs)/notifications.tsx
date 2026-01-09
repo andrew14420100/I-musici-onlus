@@ -636,34 +636,100 @@ export default function NotificationsScreen() {
                 <Text style={styles.errorText}>{errorMessage}</Text>
               ) : null}
 
-              <Text style={styles.inputLabel}>Seleziona Allievi</Text>
+              <Text style={styles.inputLabel}>Destinatari</Text>
               <View style={styles.studentSelectActions}>
-                <TouchableOpacity onPress={selectAllStudents} style={styles.selectAllButton}>
+                <TouchableOpacity onPress={selectAllUsers} style={styles.selectAllButton}>
                   <Text style={styles.selectAllText}>Tutti</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={deselectAllStudents} style={styles.selectAllButton}>
+                <TouchableOpacity onPress={deselectAllUsers} style={styles.selectAllButton}>
                   <Text style={styles.selectAllText}>Nessuno</Text>
                 </TouchableOpacity>
                 <Text style={styles.selectedCount}>
-                  {selectedStudents.length} di {students.length}
+                  {selectedUsers.length} di {allUsers.length}
                 </Text>
               </View>
 
+              {/* Selezione rapida per ruolo */}
+              <View style={styles.roleSelectContainer}>
+                <TouchableOpacity 
+                  style={styles.roleSelectButton} 
+                  onPress={() => selectUsersByRole('insegnante')}
+                >
+                  <Ionicons name="school" size={16} color="#4A90D9" />
+                  <Text style={styles.roleSelectText}>+ Insegnanti</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.roleSelectButton} 
+                  onPress={() => selectUsersByRole('allievo')}
+                >
+                  <Ionicons name="musical-notes" size={16} color="#4A90D9" />
+                  <Text style={styles.roleSelectText}>+ Allievi</Text>
+                </TouchableOpacity>
+              </View>
+
               <ScrollView style={styles.studentList} nestedScrollEnabled>
-                {students.map(student => (
-                  <TouchableOpacity
-                    key={student.id}
-                    style={styles.studentItem}
-                    onPress={() => toggleStudentSelection(student.id)}
-                  >
-                    <Ionicons 
-                      name={selectedStudents.includes(student.id) ? 'checkbox' : 'square-outline'} 
-                      size={24} 
-                      color={selectedStudents.includes(student.id) ? '#4A90D9' : '#ccc'} 
-                    />
-                    <Text style={styles.studentName}>{student.nome} {student.cognome}</Text>
-                  </TouchableOpacity>
-                ))}
+                {/* Insegnanti */}
+                {usersByRole.insegnanti.length > 0 && (
+                  <>
+                    <Text style={styles.roleGroupTitle}>👨‍🏫 Insegnanti ({usersByRole.insegnanti.length})</Text>
+                    {usersByRole.insegnanti.map(user => (
+                      <TouchableOpacity
+                        key={user.id}
+                        style={styles.studentItem}
+                        onPress={() => toggleUserSelection(user.id)}
+                      >
+                        <Ionicons 
+                          name={selectedUsers.includes(user.id) ? 'checkbox' : 'square-outline'} 
+                          size={24} 
+                          color={selectedUsers.includes(user.id) ? '#4A90D9' : '#ccc'} 
+                        />
+                        <Text style={styles.studentName}>{user.nome} {user.cognome}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+
+                {/* Allievi */}
+                {usersByRole.allievi.length > 0 && (
+                  <>
+                    <Text style={styles.roleGroupTitle}>🎓 Allievi ({usersByRole.allievi.length})</Text>
+                    {usersByRole.allievi.map(user => (
+                      <TouchableOpacity
+                        key={user.id}
+                        style={styles.studentItem}
+                        onPress={() => toggleUserSelection(user.id)}
+                      >
+                        <Ionicons 
+                          name={selectedUsers.includes(user.id) ? 'checkbox' : 'square-outline'} 
+                          size={24} 
+                          color={selectedUsers.includes(user.id) ? '#4A90D9' : '#ccc'} 
+                        />
+                        <Text style={styles.studentName}>{user.nome} {user.cognome}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+
+                {/* Admin */}
+                {usersByRole.admin.length > 0 && (
+                  <>
+                    <Text style={styles.roleGroupTitle}>👑 Amministratori ({usersByRole.admin.length})</Text>
+                    {usersByRole.admin.map(user => (
+                      <TouchableOpacity
+                        key={user.id}
+                        style={styles.studentItem}
+                        onPress={() => toggleUserSelection(user.id)}
+                      >
+                        <Ionicons 
+                          name={selectedUsers.includes(user.id) ? 'checkbox' : 'square-outline'} 
+                          size={24} 
+                          color={selectedUsers.includes(user.id) ? '#4A90D9' : '#ccc'} 
+                        />
+                        <Text style={styles.studentName}>{user.nome} {user.cognome}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
               </ScrollView>
 
               <Text style={styles.inputLabel}>Titolo</Text>
