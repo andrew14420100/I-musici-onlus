@@ -95,7 +95,7 @@ export default function AttendanceScreen() {
   const resetForm = () => {
     setFormData({
       allievo_id: '',
-      data: new Date().toISOString().split('T')[0],
+      data: getTodayForDisplay(),
       stato: AttendanceStatus.PRESENT,
       recupero_data: '',
       note: '',
@@ -120,9 +120,9 @@ export default function AttendanceScreen() {
     setEditingAttendance(attendance);
     setFormData({
       allievo_id: attendance.allievo_id,
-      data: attendance.data?.split('T')[0] || '',
+      data: convertAPIToDisplay(attendance.data || ''),
       stato: attendance.stato,
-      recupero_data: attendance.recupero_data?.split('T')[0] || '',
+      recupero_data: convertAPIToDisplay(attendance.recupero_data || ''),
       note: attendance.note || '',
     });
     setModalVisible(true);
