@@ -409,7 +409,7 @@ export default function AttendanceScreen() {
                   style={styles.input}
                   value={formData.data}
                   onChangeText={(text) => setFormData(prev => ({ ...prev, data: text }))}
-                  placeholder="AAAA-MM-GG"
+                  placeholder="GG-MM-AAAA"
                   placeholderTextColor={Colors.textTertiary}
                 />
               </View>
@@ -443,7 +443,7 @@ export default function AttendanceScreen() {
                     style={styles.input}
                     value={formData.recupero_data}
                     onChangeText={(text) => setFormData(prev => ({ ...prev, recupero_data: text }))}
-                    placeholder="AAAA-MM-GG"
+                    placeholder="GG-MM-AAAA"
                     placeholderTextColor={Colors.textTertiary}
                   />
                 </View>
