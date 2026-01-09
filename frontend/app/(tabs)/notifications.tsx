@@ -1189,6 +1189,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
   },
+  roleSelectContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  roleSelectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#EBF5FF',
+    borderRadius: 16,
+    gap: 4,
+  },
+  roleSelectText: {
+    fontSize: 12,
+    color: '#4A90D9',
+    fontWeight: '600',
+  },
+  roleGroupTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#666',
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 4,
+  },
   submitButton: {
     backgroundColor: '#4A90D9',
     paddingVertical: 14,
