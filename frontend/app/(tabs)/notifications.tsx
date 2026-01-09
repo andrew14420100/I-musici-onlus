@@ -537,7 +537,7 @@ export default function NotificationsScreen() {
               <Text style={styles.inputLabel}>Scadenza</Text>
               <TextInput
                 style={styles.input}
-                placeholder="YYYY-MM-DD (es: 2026-02-15)"
+                placeholder="GG-MM-AAAA (es: 15-02-2026)"
                 value={paymentForm.scadenza}
                 onChangeText={(text) => setPaymentForm({ ...paymentForm, scadenza: text })}
               />
