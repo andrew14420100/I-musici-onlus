@@ -395,7 +395,7 @@ export default function CalendarScreen() {
             </ScrollView>
 
             {/* Data */}
-            <Text style={styles.label}>Data * (formato: YYYY-MM-DD)</Text>
+            <Text style={styles.label}>Data * (formato: GG-MM-AAAA)</Text>
             <TextInput
               style={styles.input}
               placeholder="2026-01-09"
