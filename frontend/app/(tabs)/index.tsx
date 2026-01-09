@@ -162,35 +162,43 @@ export default function HomeScreen() {
             {/* Stats Grid - 2x2 same size */}
             <View style={styles.statsGrid}>
               <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="people" size={22} color={Colors.primary} />
+                <View style={styles.statCardContent}>
+                  <View style={styles.statIconContainer}>
+                    <Ionicons name="people" size={20} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.statValue}>{stats.totale_utenti}</Text>
+                  <Text style={styles.statLabel}>Utenti Totali</Text>
                 </View>
-                <Text style={styles.statValue}>{stats.totale_utenti}</Text>
-                <Text style={styles.statLabel}>Utenti Totali</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="school" size={22} color={Colors.primary} />
+                <View style={styles.statCardContent}>
+                  <View style={styles.statIconContainer}>
+                    <Ionicons name="school" size={20} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
+                  <Text style={styles.statLabel}>Insegnanti</Text>
                 </View>
-                <Text style={styles.statValue}>{stats.totale_insegnanti}</Text>
-                <Text style={styles.statLabel}>Insegnanti</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.statCard} activeOpacity={0.8} onPress={navigateToUsers}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="musical-notes" size={22} color={Colors.primary} />
+                <View style={styles.statCardContent}>
+                  <View style={styles.statIconContainer}>
+                    <Ionicons name="musical-notes" size={20} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.statValue}>{stats.totale_allievi}</Text>
+                  <Text style={styles.statLabel}>Allievi</Text>
                 </View>
-                <Text style={styles.statValue}>{stats.totale_allievi}</Text>
-                <Text style={styles.statLabel}>Allievi</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.statCard} activeOpacity={0.8}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="cash" size={22} color={Colors.primary} />
+                <View style={styles.statCardContent}>
+                  <View style={styles.statIconContainer}>
+                    <Ionicons name="cash" size={20} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
+                  <Text style={styles.statLabel}>Incassi</Text>
                 </View>
-                <Text style={styles.statValue}>€{stats.totale_incassi?.toFixed(0) || 0}</Text>
-                <Text style={styles.statLabel}>Incassi</Text>
               </TouchableOpacity>
             </View>
 
