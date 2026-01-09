@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 import uuid
 
 # Configuration
-BASE_URL = "https://musici-academy.preview.emergentagent.com/api"
+BASE_URL = "https://musici-academy-1.preview.emergentagent.com/api"
 ADMIN_TOKEN = "test_session_admin_1767808667676"
 HEADERS = {
     "Authorization": f"Bearer {ADMIN_TOKEN}",
