@@ -193,10 +193,10 @@ export default function NotificationsScreen() {
       return;
     }
     
-    // Valida formato data YYYY-MM-DD
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    // Valida formato data DD-MM-YYYY
+    const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
     if (!dateRegex.test(paymentForm.scadenza)) {
-      setErrorMessage('Formato data non valido. Usa YYYY-MM-DD (es: 2026-02-15)');
+      setErrorMessage('Formato data non valido. Usa GG-MM-AAAA (es: 15-02-2026)');
       return;
     }
 
@@ -205,7 +205,7 @@ export default function NotificationsScreen() {
         destinatari_ids: selectedStudents,
         importo: parseFloat(paymentForm.importo),
         causale: paymentForm.causale,
-        scadenza: paymentForm.scadenza,
+        scadenza: convertDisplayToAPI(paymentForm.scadenza),
         note: paymentForm.note
       });
       
